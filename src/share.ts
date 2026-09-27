@@ -31,7 +31,13 @@ export function decodeDesign(s: string, level: Level): Design | null {
     const kind = new Map(nodes.map((x) => [x.id, x.kind]));
     // Drop wires the editor would refuse today (saves from before a rule existed).
     const ok = ([a, b]: [string, string]) => kind.has(a) && kind.has(b) && !wireProblem(kind.get(a)!, kind.get(b)!);
-    const edges = [...(level.fixedEdges ?? []), ...p.e.filter(ok).map(([from, to]) => ({ from, to }))];
+    let fansWired = false;
+    const oneAddress = ([a]: [string, string]) => {
+      if (kind.get(a) !== 'users') return true;
+      if (fansWired) return false;
+      return (fansWired = true);
+    };
+    const edges = [...(level.fixedEdges ?? []), ...p.e.filter(ok).filter(oneAddress).map(([from, to]) => ({ from, to }))];
     return { nodes, edges };
   } catch {
     return null;

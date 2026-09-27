@@ -34,6 +34,7 @@ export const ACT1: Level[] = [
       'Queuetix is three people, a laptop, and one band that said yes.',
       'Fans want to see tour dates. Put a web server in front of them and a database behind it.',
       'Drag parts from the tray. Drag from one part to another to wire them. Then press Run.',
+      'Fans only know one address, queuetix.com, so they get exactly one wire. Whatever you plug it into is your front door.',
     ],
     goal: 'Serve the tour page. Keep the error budget above zero.',
     duration: 40,

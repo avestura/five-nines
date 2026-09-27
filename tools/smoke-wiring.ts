@@ -19,3 +19,26 @@ const wires = await page.evaluate(() => document.querySelector('.banner')!.textC
 console.log(wires ? 'refused: ok' : 'NOT REFUSED');
 if (process.argv[2]) await page.screenshot({ path: process.argv[2] });
 await browser.close();
+
+// Part two: Fans get one wire. In the sandbox, place two web servers and try
+// to wire Fans to both.
+{
+  const b2 = await puppeteer.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: true, defaultViewport: { width: 1440, height: 900 } });
+  const p = await b2.newPage();
+  await p.goto('http://localhost:5199/', { waitUntil: 'networkidle0' });
+  await p.evaluate(() => localStorage.setItem('five-nines-v1', JSON.stringify({ stars: { '1-1': 1, '1-2': 1, '1-3': 1, '1-4': 1, '1-5': 1 }, designs: {}, seenCards: [], naming: 'generic', muted: true })));
+  await p.reload({ waitUntil: 'networkidle0' });
+  await p.evaluate(() => ([...document.querySelectorAll('button')].find((b) => b.textContent === 'Sandbox') as HTMLButtonElement).click());
+  await p.click('.modal .btn.primary');
+  const q = await p.evaluate(() => { const r = document.querySelector('.board canvas')!.getBoundingClientRect(); const s = Math.min(r.width / 1152, r.height / 672); return { l: r.left + (r.width - 1152 * s) / 2, t: r.top + (r.height - 672 * s) / 2, s }; });
+  const P = (x: number, y: number) => [q.l + x * q.s, q.t + y * q.s] as const;
+  await p.mouse.move(...P(480, 240)); await p.keyboard.press('1');
+  await p.mouse.move(...P(480, 432)); await p.keyboard.press('1');
+  for (const y of [240, 432]) {
+    await p.mouse.move(...P(138, 336)); await p.mouse.down(); await p.mouse.move(...P(480, y), { steps: 6 }); await p.mouse.up();
+  }
+  const msg = await p.$eval('.banner', (e) => e.textContent ?? '');
+  console.log(msg.includes('one address') ? 'second fans wire refused: ok' : `NOT REFUSED: ${msg}`);
+  if (process.argv[3]) await p.screenshot({ path: process.argv[3] });
+  await b2.close();
+}

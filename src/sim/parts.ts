@@ -123,6 +123,10 @@ const CALLERS: Record<string, PartKind[]> = {
   payment: ['web', 'worker'],
 };
 
+// Fans know one address, queuetix.com. Whatever answers it has to do the spreading.
+export const FANS_ONE_ADDRESS =
+  'Fans only know one address. Wire them to a single front door, and put a load balancer, gateway or global router there to spread the traffic.';
+
 // Why a wire is not allowed, or null if it is fine.
 export function wireProblem(from: PartKind, to: PartKind): string | null {
   if (to === 'users') return 'Nothing sends requests to the fans.';

@@ -40,6 +40,20 @@ for (const level of LEVELS) {
     const ch = fmt('cheat', level, cheat);
     if (ch.r.stars[0]) { console.log(ch.line + '\n  !! fans wired straight to the data still passes'); bad++; }
   }
+  // Shortcut check: skip the front door and let Fans spread traffic themselves.
+  const doors = level.reference.nodes.filter((x) => ['lb', 'gateway', 'dns'].includes(x.kind)).map((x) => x.id);
+  if (doors.length) {
+    const behind = level.reference.edges.filter((e) => doors.includes(e.from)).map((e) => e.to).filter((id) => !doors.includes(id));
+    const cheat = {
+      nodes: level.reference.nodes.filter((x) => !doors.includes(x.id)),
+      edges: [
+        ...level.reference.edges.filter((e) => !doors.includes(e.from) && !doors.includes(e.to) && e.from !== 'fans'),
+        ...behind.map((to) => ({ from: 'fans', to })),
+      ],
+    };
+    const ch = fmt('spread', level, cheat);
+    if (ch.r.stars[0]) { console.log(ch.line + '\n  !! fans spreading traffic themselves still passes'); bad++; }
+  }
   if (level.naive) {
     const nv = fmt('naive', level, level.naive);
     console.log(nv.line);

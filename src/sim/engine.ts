@@ -95,6 +95,8 @@ export class Sim {
       // Wires the editor would refuse (old saves, hand-made links) do nothing.
       if (a && b && e.from !== e.to && !wireProblem(a.spec.kind, b.spec.kind)) {
         const list = this.out.get(e.from)!;
+        // Fans have one address: only their first wire counts.
+        if (a.spec.kind === 'users' && list.length) continue;
         if (!list.includes(e.to)) list.push(e.to);
       }
     }

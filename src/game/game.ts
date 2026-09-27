@@ -1,6 +1,6 @@
 import { h, clear, fitCanvas } from '../dom';
 import { GRID } from '../theme';
-import { PARTS, isPlaceable, wireProblem } from '../sim/parts';
+import { PARTS, isPlaceable, wireProblem, FANS_ONE_ADDRESS } from '../sim/parts';
 import { Sim, designCost } from '../sim/engine';
 import { TICKS_PER_SECOND_REAL, type Design, type EdgeSpec, type Level, type NodeOpts, type NodeSpec, type PartKind } from '../sim/types';
 import { CARDS } from '../cards';
@@ -315,6 +315,7 @@ export class Game {
     if (!a || !b) return;
     const problem = wireProblem(a.kind, b.kind);
     if (problem) return this.flash(problem);
+    if (a.kind === 'users' && this.design.edges.some((e) => e.from === from)) return this.flash(FANS_ONE_ADDRESS);
     if (this.design.edges.some((e) => e.from === from && e.to === to)) return;
     this.design.edges.push({ from, to });
     audio.wire();

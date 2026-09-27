@@ -33,6 +33,13 @@ for (const level of LEVELS) {
   const ref = fmt('ref', level, level.reference);
   console.log(ref.line);
   if (starCount(ref.r) < 3) { console.log('  !! reference does not get 3 stars'); bad++; }
+  // Shortcut check: Fans wired straight to every data store must never pass.
+  const stores = level.reference.nodes.filter((x) => ['db', 'replica', 'readmodel', 'cache', 'payment'].includes(x.kind));
+  if (stores.length) {
+    const cheat = { nodes: level.reference.nodes, edges: stores.map((x) => ({ from: 'fans', to: x.id })) };
+    const ch = fmt('cheat', level, cheat);
+    if (ch.r.stars[0]) { console.log(ch.line + '\n  !! fans wired straight to the data still passes'); bad++; }
+  }
   if (level.naive) {
     const nv = fmt('naive', level, level.naive);
     console.log(nv.line);

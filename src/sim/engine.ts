@@ -1,4 +1,4 @@
-import { PARTS } from './parts';
+import { PARTS, wireProblem } from './parts';
 import { makeRng, poisson, type Rng } from './rng';
 import {
   HOP_TICKS, TICKS_PER_SECOND_REAL, TICK_MS, REQ_TYPES,
@@ -91,7 +91,9 @@ export class Sim {
     this.out.clear();
     for (const id of this.nodes.keys()) this.out.set(id, []);
     for (const e of design.edges) {
-      if (this.nodes.has(e.from) && this.nodes.has(e.to) && e.from !== e.to) {
+      const a = this.nodes.get(e.from), b = this.nodes.get(e.to);
+      // Wires the editor would refuse (old saves, hand-made links) do nothing.
+      if (a && b && e.from !== e.to && !wireProblem(a.spec.kind, b.spec.kind)) {
         const list = this.out.get(e.from)!;
         if (!list.includes(e.to)) list.push(e.to);
       }

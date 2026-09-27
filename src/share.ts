@@ -1,4 +1,5 @@
 import type { Design, Level, NodeSpec } from './sim/types';
+import { wireProblem } from './sim/parts';
 
 // Compact form: only the player's own parts, fixed ones come from the level.
 interface Packed {
@@ -27,8 +28,10 @@ export function decodeDesign(s: string, level: Level): Design | null {
         opts: o ? Object.fromEntries(o.split(',').map((k) => [k, true])) : undefined,
       })),
     ];
-    const ids = new Set(nodes.map((x) => x.id));
-    const edges = [...(level.fixedEdges ?? []), ...p.e.filter(([a, b]) => ids.has(a) && ids.has(b)).map(([from, to]) => ({ from, to }))];
+    const kind = new Map(nodes.map((x) => [x.id, x.kind]));
+    // Drop wires the editor would refuse today (saves from before a rule existed).
+    const ok = ([a, b]: [string, string]) => kind.has(a) && kind.has(b) && !wireProblem(kind.get(a)!, kind.get(b)!);
+    const edges = [...(level.fixedEdges ?? []), ...p.e.filter(ok).map(([from, to]) => ({ from, to }))];
     return { nodes, edges };
   } catch {
     return null;

@@ -111,6 +111,29 @@ export const PARTS: Record<PartKind, PartDef> = {
   },
 };
 
+// Backends only your own code may call. Fans, load balancers, CDNs and other
+// front-door parts cannot talk to them directly.
+const BACKEND: PartKind[] = ['db', 'replica', 'readmodel', 'cache', 'shardrouter', 'payment'];
+const CALLERS: Record<string, PartKind[]> = {
+  db: ['web', 'worker', 'cache', 'shardrouter'],
+  replica: ['web', 'worker', 'cache', 'shardrouter'],
+  cache: ['web', 'worker'],
+  shardrouter: ['web', 'worker', 'cache'],
+  readmodel: ['web', 'worker', 'pubsub'],
+  payment: ['web', 'worker'],
+};
+
+// Why a wire is not allowed, or null if it is fine.
+export function wireProblem(from: PartKind, to: PartKind): string | null {
+  if (to === 'users') return 'Nothing sends requests to the fans.';
+  if (BACKEND.includes(to) && !CALLERS[to].includes(from)) {
+    const names = CALLERS[to].map((k) => PARTS[k].name.toLowerCase());
+    const who = names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}` : names[0];
+    return `${PARTS[from].name} cannot wire straight to the ${PARTS[to].name.toLowerCase()}. Only a ${who} can call it. Your data sits behind your own code.`;
+  }
+  return null;
+}
+
 // A part the player can place (not users/payment, which levels place).
 export function isPlaceable(k: PartKind) {
   return k !== 'users' && k !== 'payment';

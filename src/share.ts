@@ -1,0 +1,46 @@
+import type { Design, Level, NodeSpec } from './sim/types';
+
+// Compact form: only the player's own parts, fixed ones come from the level.
+interface Packed {
+  n: [string, string, number, number, string?][];
+  e: [string, string][];
+}
+
+export function encodeDesign(d: Design): string {
+  const p: Packed = {
+    n: d.nodes.filter((x) => !x.fixed).map((x) => {
+      const o = x.opts ? Object.keys(x.opts).filter((k) => (x.opts as Record<string, boolean>)[k]).join(',') : '';
+      return o ? [x.id, x.kind, x.x, x.y, o] : [x.id, x.kind, x.x, x.y];
+    }),
+    e: d.edges.map((e) => [e.from, e.to]),
+  };
+  return btoa(unescape(encodeURIComponent(JSON.stringify(p)))).replace(/=+$/, '');
+}
+
+export function decodeDesign(s: string, level: Level): Design | null {
+  try {
+    const p = JSON.parse(decodeURIComponent(escape(atob(s)))) as Packed;
+    const nodes: NodeSpec[] = [
+      ...level.fixed.map((f) => ({ ...f })),
+      ...p.n.map(([id, kind, x, y, o]) => ({
+        id, kind: kind as NodeSpec['kind'], x, y,
+        opts: o ? Object.fromEntries(o.split(',').map((k) => [k, true])) : undefined,
+      })),
+    ];
+    const ids = new Set(nodes.map((x) => x.id));
+    const edges = [...(level.fixedEdges ?? []), ...p.e.filter(([a, b]) => ids.has(a) && ids.has(b)).map(([from, to]) => ({ from, to }))];
+    return { nodes, edges };
+  } catch {
+    return null;
+  }
+}
+
+export function shareUrl(levelId: string, d: Design) {
+  const base = location.href.split('#')[0];
+  return `${base}#L=${encodeURIComponent(levelId)}&d=${encodeDesign(d)}`;
+}
+
+export function readHash(): { level?: string; design?: string } {
+  const h = new URLSearchParams(location.hash.slice(1));
+  return { level: h.get('L') ?? undefined, design: h.get('d') ?? undefined };
+}

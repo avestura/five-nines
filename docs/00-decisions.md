@@ -6,7 +6,7 @@
 - **Essential experience:** "It held." The spike hits, the graph bends, nothing breaks.
 - **Player curve:** starts at junior system designer (few parts, forgiving),
   ends at senior engineer (clever puzzles, inside jokes).
-- **Constraint:** fixed kit early, monthly $ budget later, both in Act 3.
+- **Constraint:** fixed kit early, monthly $ budget later, both in Release 3.
 - **Win/lose:** error budget bar drains live (lose at zero). The end of the run is
   scored on SLO (p99 latency + success rate), cost, and part count. 1 to 3 stars.
 - **Requests:** colored dots by type (read, write, static, auth, bot).
@@ -24,9 +24,9 @@
   failure, slow dependency, bot floods.
 - **Debrief:** latency histogram with SLO line, scrubbable heatmap replay,
   postmortem card, shareable URL-encoded design.
-- **Sim depth:** layered. Act 1 is capacity + queue + service time. Act 2 adds
-  retries and replication lag. Act 3 adds cold starts, retry storms, cascading.
-- **Scope:** 3 acts (~16 levels) plus sandbox.
+- **Sim depth:** layered. Release 1 is capacity + queue + service time. Release 2 adds
+  retries and replication lag. Release 3 adds cold starts, retry storms, cascading.
+- **Scope:** 3 releases (16 levels) plus sandbox. Chapters are called "Release" in the UI (originally "acts").
 - **Audio:** subtle procedural WebAudio, mute toggle.
 - **Stack:** TypeScript + Vite, a GitHub Action deploys to GitHub Pages.
 - **Writing style:** plain and human. No em dashes. No AI-ish phrasing.

@@ -51,9 +51,9 @@ There are always two paths:
 
 The simulation deepens by act (layered depth, per the brief):
 
-1. **Act 1:** capacity, queues and service time. A fixed kit, a forgiving budget.
-2. **Act 2:** async work, replicas, bots, retries and routing. A monthly $ cap replaces the kit.
-3. **Act 3:** hangs, cascades, sharding, CQRS, regions and sagas. Both the kit and the cap apply.
+1. **Release 1:** capacity, queues and service time. A fixed kit, a forgiving budget.
+2. **Release 2:** async work, replicas, bots, retries and routing. A monthly $ cap replaces the kit.
+3. **Release 3:** hangs, cascades, sharding, CQRS, regions and sagas. Both the kit and the cap apply.
 
 Each level introduces exactly one new idea.
 
@@ -80,7 +80,7 @@ already feels why it matters.
 ## #61 Interest Curve
 
 Every level follows the same shape: a calm opener, rising load, a telegraphed
-peak, then release. The acts do too. Act 3 ends on the farewell tour, where
+peak, then release. The releases do too. Release 3 ends on the farewell tour, where
 everything happens at once.
 
 ## #10 Resonance and #72 Indirect Control

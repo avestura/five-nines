@@ -61,14 +61,14 @@ function showMap() {
           h('div', { class: 'tape' }, `${got} / ${total} stars`),
           h('button', {
             class: 'btn small', disabled: !sandboxOpen,
-            title: sandboxOpen ? 'Free build with every part' : 'Finish Act 1 to open the sandbox',
+            title: sandboxOpen ? 'Free build with every part' : 'Finish Release 1 to open the sandbox',
             onclick: () => openLevel(structuredClone(SANDBOX)),
-          }, sandboxOpen ? 'Sandbox' : 'Sandbox (finish Act 1)'),
+          }, sandboxOpen ? 'Sandbox' : 'Sandbox (finish Release 1)'),
         ),
         h('div', { class: 'phone-note tape' }, 'This plays best on a desktop with a mouse.'),
         ...ACTS.map((a) =>
           h('section', { class: 'act' },
-            h('h2', {}, `ACT ${a.n}: ${a.name.toUpperCase()}`, h('span', {}, a.blurb)),
+            h('h2', {}, `RELEASE ${a.n}: ${a.name.toUpperCase()}`, h('span', {}, a.blurb)),
             h('div', { class: 'sheets' },
               ...LEVELS.map((l, i) => ({ l, i })).filter(({ l }) => l.act === a.n).map(({ l, i }) => {
                 const st = s.stars[l.id] ?? 0;

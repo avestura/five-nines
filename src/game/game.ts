@@ -618,7 +618,7 @@ export class Game {
     const close = () => back.remove();
     const back: HTMLElement = h('div', { class: 'modal-back', onclick: (e: Event) => e.target === back && close() },
       h('div', { class: 'modal' },
-        h('div', { class: 'kicker' }, L.act ? `Act ${L.act}  ·  Ticket ${L.id.replace('-', '.')}  ·  ${L.clock[0]}` : 'Free build'),
+        h('div', { class: 'kicker' }, L.act ? `Release ${L.act}  ·  Ticket ${L.id.replace('-', '.')}  ·  ${L.clock[0]}` : 'Free build'),
         h('h2', {}, L.title),
         ...L.intro.map((p) => h('p', {}, p)),
         h('div', { class: 'goal' }, L.goal),

@@ -5,9 +5,9 @@ a sheet of graph paper, wire them up, press Run, and watch the traffic arrive.
 Each level is built to hurt without a particular cloud design pattern, and
 unlocks that pattern when you beat it.
 
-Sixteen levels in three acts, plus a sandbox:
+Sixteen levels across three releases, plus a sandbox:
 
-| Act | Levels | Patterns |
+| Release | Levels | Patterns |
 |---|---|---|
 | 1 Garage | 1.1 to 1.5 | horizontal scaling, cache-aside, static content hosting, health endpoint monitoring |
 | 2 Growth | 2.1 to 2.5 | queue-based load leveling, competing consumers, read replicas, rate limiting, retry, gateway routing |

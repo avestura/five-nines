@@ -47,6 +47,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   box-shadow: 2px 2px 0 var(--ink);
   transition: transform 60ms, box-shadow 60ms;
 }
+a.btn { color: inherit; text-decoration: none; display: inline-block; }
 .btn:hover { background: #fffaf0; }
 .btn:active { transform: translate(2px, 2px); box-shadow: 0 0 0 var(--ink); }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -98,7 +99,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 }
 .logo small { display: block; font-size: 0.28em; letter-spacing: 3px; color: var(--ink-soft); margin-top: 6px; }
 .title-note { max-width: 380px; color: var(--ink-soft); font-size: 17px; line-height: 1.4; }
-.title-settings { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.title-settings { margin-left: auto; display: flex; gap: 8px 28px; align-items: center; flex-wrap: wrap; }
+.title-settings .group { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.title-settings .group + .group { padding-left: 28px; border-left: 1.5px dashed var(--ink); }
 
 .act { margin-top: 28px; }
 .act h2 { font-family: var(--stamp); font-weight: normal; font-size: 22px; margin: 0 0 4px; letter-spacing: 1px; }

@@ -54,17 +54,17 @@ export const PARTS: Record<PartKind, PartDef> = {
     kind: 'cdn', name: 'CDN', short: 'CDN', azure: 'Azure Front Door', aws: 'CloudFront',
     cost: 30, capacity: 9999, queueLimit: 0, service: { default: 1 }, holds: false,
     provides: (t) => (t === 'static' ? ['static'] : []),
-    blurb: 'Serves images and scripts from the edge. Passes everything else through.',
+    blurb: 'Serves images and scripts from the edge. Wire it into your app (in front, or off a web server) and files stop touching your servers.',
   },
   queue: {
     kind: 'queue', name: 'Message queue', short: 'MQ', azure: 'Service Bus', aws: 'Amazon SQS',
     cost: 20, capacity: 9999, queueLimit: 2000, service: { default: 0 }, holds: false,
-    provides: none, blurb: 'Says "got it" right away, then feeds work to workers at their pace.',
+    provides: none, blurb: 'Says "got it" right away, then feeds work to workers at their pace. Writes only: a read needs its answer now.',
   },
   worker: {
     kind: 'worker', name: 'Worker', short: 'WRK', azure: 'Azure Functions', aws: 'Lambda',
     cost: 35, capacity: 8, queueLimit: 8, service: { default: 3 }, holds: true,
-    provides: none, blurb: 'Pulls jobs off a queue and does the slow part.',
+    provides: none, blurb: 'Pulls jobs off a queue and does the slow part. Here that means writes, never page reads.',
   },
   replica: {
     kind: 'replica', name: 'Read replica', short: 'RR', azure: 'SQL read replica', aws: 'RDS read replica',
@@ -80,7 +80,7 @@ export const PARTS: Record<PartKind, PartDef> = {
   gateway: {
     kind: 'gateway', name: 'API gateway', short: 'API', azure: 'API Management', aws: 'API Gateway',
     cost: 50, capacity: 9999, queueLimit: 0, service: { default: 1 }, holds: false,
-    provides: none, blurb: 'One front door that sends each kind of call to the right service.',
+    provides: none, blurb: 'One front door that sends each kind of call to the right service. Only worth it with two or more different services behind it, otherwise it is billed as idle.',
   },
   payment: {
     kind: 'payment', name: 'Payments API', short: 'PAY', azure: 'Third party', aws: 'Third party',
@@ -111,34 +111,76 @@ export const PARTS: Record<PartKind, PartDef> = {
   },
 };
 
-// Backends only your own code may call. Fans, load balancers, CDNs and other
-// front-door parts cannot talk to them directly.
-const BACKEND: PartKind[] = ['db', 'replica', 'readmodel', 'cache', 'shardrouter', 'payment'];
-const CALLERS: Record<string, PartKind[]> = {
-  db: ['web', 'worker', 'cache', 'shardrouter'],
-  replica: ['web', 'worker', 'cache', 'shardrouter'],
-  cache: ['web', 'worker'],
-  shardrouter: ['web', 'worker', 'cache'],
-  readmodel: ['web', 'worker', 'pubsub'],
-  payment: ['web', 'worker'],
+// Who may call whom. A wire not listed here cannot be drawn, and the engine
+// ignores it. Fans only reach front-door parts; data stores, queues and
+// workers sit behind your own code. Nothing here is a shortcut: every edge
+// is one a real architecture diagram would have.
+const FRONT: PartKind[] = ['waf', 'cdn', 'lb', 'gateway', 'dns', 'web'];
+export const ALLOWED: Record<PartKind, PartKind[]> = {
+  users: FRONT,
+  dns: ['waf', 'cdn', 'lb', 'gateway', 'web'],
+  waf: ['cdn', 'lb', 'gateway', 'web'],
+  cdn: ['waf', 'lb', 'gateway', 'web'],
+  lb: ['web', 'gateway'],
+  gateway: ['lb', 'web', 'queue'],
+  web: ['db', 'replica', 'cache', 'shardrouter', 'readmodel', 'queue', 'payment', 'pubsub', 'cdn'],
+  queue: ['worker'],
+  worker: ['db', 'replica', 'cache', 'shardrouter', 'readmodel', 'payment', 'pubsub'],
+  cache: ['db', 'replica', 'shardrouter'],
+  shardrouter: ['db'],
+  pubsub: ['readmodel', 'queue'],
+  db: [],
+  replica: [],
+  readmodel: [],
+  payment: [],
 };
 
 // Fans know one address, queuetix.com. Whatever answers it has to do the spreading.
 export const FANS_ONE_ADDRESS =
   'Fans only know one address. Wire them to a single front door, and put a load balancer, gateway or global router there to spread the traffic.';
 
+// Parts that hand everything to one next part. Only a load balancer, a global
+// router or a gateway may spread traffic, or the load balancer would be optional.
+export const ONE_NEXT_HOP: PartKind[] = ['users', 'waf', 'cdn'];
+export function oneHopMessage(kind: PartKind): string {
+  return kind === 'users'
+    ? FANS_ONE_ADDRESS
+    : `A ${PARTS[kind].name.toLowerCase()} passes everything to one next part. To spread traffic over several servers, put a load balancer after it.`;
+}
+
+const list = (kinds: PartKind[]) => {
+  const names = kinds.map((k) => PARTS[k].name.toLowerCase());
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}` : names[0];
+};
+
 // Why a wire is not allowed, or null if it is fine.
 export function wireProblem(from: PartKind, to: PartKind): string | null {
   if (to === 'users') return 'Nothing sends requests to the fans.';
-  if (BACKEND.includes(to) && !CALLERS[to].includes(from)) {
-    const names = CALLERS[to].map((k) => PARTS[k].name.toLowerCase());
-    const who = names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}` : names[0];
-    return `${PARTS[from].name} cannot wire straight to the ${PARTS[to].name.toLowerCase()}. Only a ${who} can call it. Your data sits behind your own code.`;
-  }
-  return null;
+  if (ALLOWED[from].includes(to)) return null;
+  const f = PARTS[from].name, t = PARTS[to].name.toLowerCase();
+  if (to === 'waf') return `A rate limiter filters traffic before it is spread, so it goes in front of the ${PARTS[from].name.toLowerCase()}, not behind it. (In the cloud you attach a WAF to a load balancer; here that means putting it in front.)`;
+  if (from === 'db' && to === 'replica') return 'Replication is automatic, so there is no wire for it. Wire the replica from whatever does the reading: a web server, worker or cache.';
+  if (!ALLOWED[from].length) return `${f} does not call anything. It only answers.`;
+  if (from === 'users') return `Fans cannot reach the ${t} directly. They only know the public front door: ${list(FRONT)}.`;
+  const callers = (Object.keys(ALLOWED) as PartKind[]).filter((k) => ALLOWED[k].includes(to));
+  return `${f} cannot wire to the ${t}. ${callers.length ? `Only a ${list(callers)} can call it.` : 'Nothing calls it.'} ${f} can call: ${list(ALLOWED[from])}.`;
 }
 
 // A part the player can place (not users/payment, which levels place).
 export function isPlaceable(k: PartKind) {
   return k !== 'users' && k !== 'payment';
 }
+
+// Would adding from -> to close a loop? Requests would circle forever.
+export function wouldCycle(edges: { from: string; to: string }[], from: string, to: string): boolean {
+  const seen = new Set<string>([to]);
+  const stack = [to];
+  while (stack.length) {
+    const id = stack.pop()!;
+    if (id === from) return true;
+    for (const e of edges) if (e.from === id && !seen.has(e.to)) { seen.add(e.to); stack.push(e.to); }
+  }
+  return false;
+}
+
+export const NO_LOOPS = 'That wire would make a loop. Requests would go round in circles.';

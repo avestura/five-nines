@@ -73,9 +73,9 @@ export const ACT1: Level[] = [
     clock: ['11:40', '12:00'],
     intro: [
       'A mid-size band tweeted the link. Traffic is doubling every few minutes.',
-      'One web server can hold about 50 requests a second. The forecast says more than that is coming.',
+      'One web server can hold about 80 requests a second. The forecast says more than that is coming.',
     ],
-    goal: 'Survive the tweet. Two web servers will not be enough at the peak.',
+    goal: 'Survive the tweet. One web server will not be enough at the peak.',
     duration: 50,
     seed: 12,
     traffic: [
@@ -204,7 +204,7 @@ export const ACT1: Level[] = [
         'Summary: every web server spent the afternoon mailing out a JPEG.',
         'Root cause: static files held web slots for a long time, so real page loads queued behind them.',
       ],
-      hint: 'Put a CDN in front of everything. It answers static files and passes the rest through.',
+      hint: 'Add a CDN and wire it into your app, either in front of the load balancer or off a web server. Files come from the CDN and never touch your web servers.',
     },
   },
   {

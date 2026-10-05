@@ -9,6 +9,8 @@ export function cardEl(c: Card, compact = false) {
       h('dt', {}, 'What'), h('dd', {}, c.what),
       h('dt', {}, 'When'), h('dd', {}, c.when),
       h('dt', {}, 'Trade-off'), h('dd', {}, c.cost),
+      c.inGame ? h('dt', {}, 'In this game') : null,
+      c.inGame ? h('dd', {}, c.inGame) : null,
     ),
     h('div', { class: 'links' }, ...c.links.map((l) => h('a', { href: l.href, target: '_blank', rel: 'noopener' }, l.label))),
   );

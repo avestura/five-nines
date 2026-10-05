@@ -95,3 +95,10 @@ instantly").
 - `npm run harness` plays every level headless with its reference and naive design. All 16 levels pass: every reference gets 3 stars, every naive design fails.
 - `tools/smoke*.ts` drives the real UI in headless Chrome: mouse placement, wiring, runs, debrief and sandbox.
 - **Not done:** real people. The harness can prove a level is solvable and that the obvious wrong answer fails. It cannot tell whether a level feels good, or whether the pattern cards land. That needs human playtests.
+
+## Wiring rules, failure reasons and the Debug button
+
+- **Who may call whom** lives in one table, `ALLOWED` in `src/sim/parts.ts`. The editor, share links and the engine all read it. Fans reach only front-door parts (rate limiter, CDN, load balancer, gateway, global router, web server). Queues feed workers, data stores and payments sit behind web servers and workers. Loops are refused.
+- **Every failure has a reason and a place** (`stats.why`, e.g. `no-route(write)@web-1`, `overflow@db`). The debrief reads from it, so it says "nothing after web-1 provides write" instead of blaming whatever node a request happened to be sitting at.
+- **Design check** (`src/sim/check.ts`) walks the graph the engine will use before a run: which kinds of request have a route to everything they need, which parts are cut off, which are dead ends. It shows in the banner while drafting and in the debrief when you lose.
+- **Debug** button (top bar and debrief) copies a compact dump: nodes, edges, check, run stats, failure reasons, and a `CODE` line. `npm run replay -- "2-3 <code>"` re-runs it headless. `npm run check` runs the design check over every reference.

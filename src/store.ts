@@ -8,11 +8,12 @@ export interface Save {
   seenCards: string[];
   naming: Naming;
   muted: boolean;
+  debug: boolean; // show the Debug button and the design check
 }
 
 const KEY = 'five-nines-v1';
 
-const blank = (): Save => ({ stars: {}, designs: {}, seenCards: [], naming: 'generic', muted: false });
+const blank = (): Save => ({ stars: {}, designs: {}, seenCards: [], naming: 'generic', muted: false, debug: false });
 
 let cache: Save | null = null;
 

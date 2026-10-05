@@ -44,6 +44,7 @@ export const ACT2: Level[] = [
       'The first big on-sale. At 10:00:00 exactly, everyone who has been refreshing clicks Buy.',
       'Each order is a database write, and the database can only do so many at once. It does not care that you are famous now.',
       'From here on you get a monthly budget instead of a parts list.',
+      'A queue only takes work the fan does not wait for, like saving an order. A page read needs its answer right now, so it still needs a direct route to the data.',
     ],
     goal: 'Take every order during the rush. Nobody said you had to finish them all instantly.',
     duration: 55,

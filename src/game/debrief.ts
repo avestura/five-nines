@@ -3,6 +3,10 @@ import { C, FONT_MONO } from '../theme';
 import type { Sim } from '../sim/engine';
 import { score, starCount } from '../sim/score';
 import { PARTS } from '../sim/parts';
+import { checkDesign, NEED_WHO } from '../sim/check';
+import { diagnose } from '../sim/diagnose';
+import { idleGateways, IDLE_GATEWAY_EXTRA } from '../sim/engine';
+import type { Need } from '../sim/types';
 import type { Design, Level } from '../sim/types';
 import { LEVELS } from '../levels';
 import { CARDS } from '../cards';
@@ -14,6 +18,7 @@ import { audio } from '../audio';
 
 interface Actions {
   retry: () => void;
+  debug?: () => void; // only with debug enabled in settings
   next: (l: Level) => void;
   map: () => void;
 }
@@ -35,7 +40,6 @@ export function showDebrief(sim: Sim, design: Design, act: Actions) {
   };
 
   // --- postmortem text, written from what actually happened ---
-  const worst = [...sim.nodes.values()].filter((n) => !n.spec.fixed || n.spec.kind === 'payment').sort((a, b) => b.failed - a.failed)[0];
   const peakUtil: Record<string, number> = {};
   for (const s of sim.snapshots) for (const [id, u] of Object.entries(s.util)) peakUtil[id] = Math.max(peakUtil[id] ?? 0, u);
   const hottest = Object.entries(peakUtil).sort((a, b) => b[1] - a[1])[0];
@@ -45,27 +49,93 @@ export function showDebrief(sim: Sim, design: Design, act: Actions) {
   };
   const facts: string[] = [];
   if (hottest && hottest[1] > 0.95) facts.push(`${name(hottest[0])} hit ${Math.round(hottest[1] * 100)}% of its slots.`);
-  if (worst && worst.failed > 0) facts.push(`Most failures surfaced at ${name(worst.spec.id)}: ${worst.failed}.`);
-  if (sim.stats.timeout > sim.stats.dropped && sim.stats.timeout > 0) facts.push(`${sim.stats.timeout} fans waited more than 3 seconds and gave up.`);
-  if (sim.stats.dropped > 0) facts.push(`${sim.stats.dropped} requests were turned away at a full queue or a dead end.`);
-  if (sim.stats.asyncLost > 0) facts.push(`${sim.stats.asyncLost} queued orders were never processed.`);
-  if (sim.stats.blocked > 0) facts.push(`${sim.stats.blocked} bot requests were turned away. Good.`);
+  // Exactly what failed and where, biggest first.
+  const sorry: Record<string, (n: number, at: string, need: string) => string> = {
+    'no-route': (n, at, need) => `${n} requests reached ${at} and found nothing after it that could provide "${need}". That is a wiring problem, not a capacity one.`,
+    overflow: (n, at) => `${n} requests were turned away because ${at} had no free slots and a full queue.`,
+    'node-down': (n, at) => `${n} requests were sent to ${at} while it was down.`,
+    flaky: (n, at) => `${n} calls to ${at} failed at random.`,
+    breaker: (n, at) => `${n} requests failed fast at ${at} because its circuit breaker was open and it had nowhere else to go.`,
+    timeout: (n, at) => `${n} fans gave up after 3 seconds while their request was at ${at}. Look at ${at} and what it waits on.`,
+    'async-expired': (n, at) => `${n} queued orders were still waiting at ${at} when their time ran out. Not enough workers, or the database behind them is too slow.`,
+    'lost-in-crash': (n, at) => `${n} requests were inside ${at} when it went down.`,
+    hotfix: (n, at) => `${n} requests were on parts removed by a mid-run hotfix (${at}).`,
+  };
+  const whyAll = Object.entries(sim.stats.why).sort((a, b) => b[1] - a[1]);
+  const why = whyAll.slice(0, 4);
+  const parse = (key: string) => /^([a-z-]+)(?:\(([a-z]+)\))?@(.*)$/.exec(key);
+  // Dead ends, grouped by what the request still needed, with every part where it got stuck.
+  const stuck = new Map<string, { n: number; at: Set<string> }>();
+  let noRoute = 0;
+  for (const [key, n] of whyAll) {
+    const m = parse(key);
+    if (!m || m[1] !== 'no-route') continue;
+    noRoute += n;
+    const g = stuck.get(m[2]) ?? { n: 0, at: new Set<string>() };
+    g.n += n;
+    g.at.add(m[3]);
+    stuck.set(m[2], g);
+  }
+  // Mostly dead ends means the drawing is wrong, whatever the level's pattern is.
+  const wiring = !passed && sim.stats.failed > 0 && noRoute >= sim.stats.failed * 0.5;
+  const where = (ids: Set<string>) => {
+    const parts = [...ids].map((id) => sim.nodes.get(id)?.spec).filter(Boolean) as NonNullable<ReturnType<typeof sim.nodes.get>>['spec'][];
+    if (parts.length && parts.every((p) => p.kind === 'users')) return 'the fans';
+    const kinds = [...new Set(parts.map((p) => PARTS[p.kind].name.toLowerCase()))];
+    return `${kinds.join(' or ')} (${[...ids].join(', ')})`;
+  };
+  const wiringLines: string[] = [];
+  const wiringFix: string[] = [];
+  for (const [need, g] of [...stuck].sort((a, b) => b[1].n - a[1].n)) {
+    const who = NEED_WHO[need as Need] ?? need;
+    wiringLines.push(`${g.n} requests that needed "${need}" got as far as ${where(g.at)} and had nowhere to go.`);
+    wiringFix.push(`Wire ${g.at.size > 1 ? 'each of those parts' : 'that part'} to something that leads to ${who}.`);
+  }
+  if (wiring && stuck.has('data') && design.nodes.some((x) => x.kind === 'queue')) {
+    wiringFix.push('Reads cannot go through a queue: the fan needs the answer in the same request. Give them their own wire from the web servers to a cache, replica, read model or database.');
+  }
+  for (const [key, n] of why) {
+    const m = parse(key);
+    if (!m || !sorry[m[1]] || m[1] === 'no-route') continue;
+    facts.push(sorry[m[1]](n, name(m[3]), m[2] ?? ''));
+  }
+  if (wiringLines.length) facts.push(...wiringLines, 'That is a wiring problem, not a capacity one: more or bigger parts would not have helped.');
+  const bt = sim.stats.byType;
+  const dead = wiring ? [] : (['read', 'write', 'static'] as const).filter((t) => bt[t].failed > 10 && bt[t].ok === 0);
+  for (const t of dead) facts.push(`Every ${t} request failed (${bt[t].failed}). None got through, so check the route they take.`);
+  if (sim.stats.asyncLost > 0 && !why.some(([k]) => k.startsWith('async-expired'))) facts.push(`${sim.stats.asyncLost} queued orders were never processed.`);
+  if (sim.stats.blocked > 0) facts.push(`The rate limiter turned away ${sim.stats.blocked} bot requests.`);
+  if (sim.stats.botLost > 0) facts.push(`${sim.stats.botLost} more bot requests died inside your system without being blocked. They still used up your servers on the way.`);
   if (sim.stats.strikes > 0) facts.push(`${sim.stats.strikes} hotfix${sim.stats.strikes > 1 ? 'es were' : ' was'} deployed mid-incident.`);
   if (!facts.length) facts.push('Nothing notable. A boring incident report is the best kind.');
+  const dx = passed ? null : diagnose(sim, L, design);
+  const problems = passed || !load().debug ? [] : checkDesign(L, design).problems;
 
   const pm = h('div', { class: 'pm' },
     h('h5', {}, 'Summary'),
-    ...(passed ? L.postmortem.win : L.postmortem.lose).map((l) => h('div', {}, l)),
+    ...(passed
+      ? L.postmortem.win
+      : wiring
+        ? [`Summary: ${noRoute} of ${sim.stats.failed} failed requests hit a dead end: the drawing gave them no route to what they needed. Nothing ran out of capacity.`]
+        : dx?.headline
+          ? [`Summary: ${dx.headline}`]
+          : L.postmortem.lose).map((l) => h('div', {}, l)),
+    problems.length ? h('h5', {}, 'Problems with the drawing') : null,
+    problems.length ? h('ul', {}, ...problems.map((f) => h('li', {}, f))) : null,
     h('h5', {}, 'What the graphs say'),
     h('ul', {}, ...facts.map((f) => h('li', {}, f))),
     sim.events.length ? h('h5', {}, 'Timeline') : null,
     sim.events.length
       ? h('ul', {}, ...sim.events.slice(0, 8).map((e) => h('li', {}, h('span', { class: 'tl' }, clock(e.t) + '  '), e.text)))
       : null,
-    !passed || stars < 3 ? h('h5', {}, 'Action items') : null,
-    !passed ? h('div', {}, L.postmortem.hint) : null,
+    !passed || stars < 3 || idleGateways(design).length ? h('h5', {}, 'Action items') : null,
+    ...(!passed && wiring ? wiringFix.map((l) => h('div', {}, l)) : []),
+    !passed && wiring ? h('div', {}, `Once every request has a route, this level is about: ${L.postmortem.hint}`) : null,
+    ...(!passed && !wiring && dx ? dx.fixes.map((f) => h('div', {}, f)) : []),
+    !passed && !wiring ? h('div', {}, dx?.headline ? `The pattern this level teaches: ${L.postmortem.hint}` : L.postmortem.hint) : null,
     passed && !r.stars[1] ? h('div', {}, `p99 was ${r.p99} ms against a ${L.slo.p99} ms target. Find the queue that is backing up.`) : null,
     passed && !r.stars[2] ? h('div', {}, `You spent $${r.cost}/mo. Par is $${L.parCost}. Something is doing less than it costs.`) : null,
+    idleGateways(design).length ? h('div', {}, `The API gateway (${idleGateways(design).join(', ')}) had only one kind of service behind it, so it had nothing to route. It was billed an extra $${idleGateways(design).length * IDLE_GATEWAY_EXTRA}/mo. A load balancer would have done the job for $25.`) : null,
     h('h5', {}, 'Blame'),
     h('div', {}, 'None. This is a blameless postmortem. (The load balancer knows what it did.)'),
   );
@@ -129,6 +199,7 @@ export function showDebrief(sim: Sim, design: Design, act: Actions) {
       ...unlockCards.map((c) => cardEl(c)),
       h('div', { class: 'actions sticky' },
         shareBtn,
+        act.debug ? h('button', { class: 'btn', onclick: () => act.debug!(), title: 'Compact text dump for bug reports' }, 'Debug') : null,
         h('button', { class: 'btn', onclick: () => { close(); act.map(); } }, 'Level map'),
         h('button', { class: 'btn', onclick: () => { close(); act.retry(); } }, 'Back to drafting'),
         next && passed ? h('button', { class: 'btn primary', onclick: () => { close(); act.next(next); } }, `Next: ${next.title}`) : null,

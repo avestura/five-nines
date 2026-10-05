@@ -1,8 +1,8 @@
-import { PARTS, wireProblem } from './parts';
+import { PARTS, ONE_NEXT_HOP, wireProblem, wouldCycle } from './parts';
 import { makeRng, poisson, type Rng } from './rng';
 import {
   HOP_TICKS, TICKS_PER_SECOND_REAL, TICK_MS, REQ_TYPES,
-  type Design, type Level, type Need, type NodeState, type Outcome, type Req,
+  type Design, type FailReason, type Level, type Need, type NodeState, type Outcome, type Req,
   type ReqType, type RunStats, type Snapshot, type NodeSpec, type ChaosEvent,
 } from './types';
 
@@ -35,6 +35,7 @@ interface LiveReq extends Req {
   dead: boolean;
   calls: [string, string, number][]; // holder, downstream, tick the call started
   writeSlot: boolean;
+  missed: string[]; // caches that already missed for this request
 }
 
 export class Sim {
@@ -49,10 +50,15 @@ export class Sim {
   out = new Map<string, string[]>();
   reach = new Map<string, Set<Need>>();
   subscribed = new Set<string>(); // read models fed by an event topic
+  // CDNs wired into the app. The page tells browsers to fetch files from them,
+  // so static requests go straight there and never touch the web servers.
+  assetCdns: string[] = [];
+  private assetRr = 0;
   live = new Map<number, LiveReq>();
   stats: RunStats = {
     ok: 0, failed: 0, dropped: 0, timeout: 0, blocked: 0, botok: 0, asyncLost: 0,
-    latencies: [], strikes: 0, halfDone: 0,
+    latencies: [], strikes: 0, halfDone: 0, botLost: 0, why: {},
+    byType: { read: { ok: 0, failed: 0 }, write: { ok: 0, failed: 0 }, static: { ok: 0, failed: 0 }, bot: { ok: 0, failed: 0 } },
   };
   snapshots: Snapshot[] = [];
   events: SimEvent[] = [];
@@ -90,17 +96,32 @@ export class Sim {
     }
     this.out.clear();
     for (const id of this.nodes.keys()) this.out.set(id, []);
+    const kept: { from: string; to: string }[] = [];
     for (const e of design.edges) {
       const a = this.nodes.get(e.from), b = this.nodes.get(e.to);
       // Wires the editor would refuse (old saves, hand-made links) do nothing.
       if (a && b && e.from !== e.to && !wireProblem(a.spec.kind, b.spec.kind)) {
         const list = this.out.get(e.from)!;
         // Fans have one address: only their first wire counts.
-        if (a.spec.kind === 'users' && list.length) continue;
-        if (!list.includes(e.to)) list.push(e.to);
+        if (ONE_NEXT_HOP.includes(a.spec.kind) && list.length) continue;
+        if (!list.includes(e.to) && !wouldCycle(kept, e.from, e.to)) { list.push(e.to); kept.push(e); }
       }
     }
     this.computeReach();
+    this.findAssetCdns();
+  }
+
+  private findAssetCdns() {
+    const seen = new Set<string>();
+    const stack = [...this.nodes.values()].filter((n) => n.spec.kind === 'users').map((n) => n.spec.id);
+    for (const id of stack) seen.add(id);
+    while (stack.length) for (const to of this.out.get(stack.pop()!) ?? []) if (!seen.has(to)) { seen.add(to); stack.push(to); }
+    // A CDN counts if the app links to it (a web server names it, or it sits in the
+    // front chain) or it pulls from an origin the fans can reach.
+    this.assetCdns = [...this.nodes.values()]
+      .filter((n) => n.spec.kind === 'cdn' && (
+        seen.has(n.spec.id) || (this.out.get(n.spec.id) ?? []).some((to) => seen.has(to))))
+      .map((n) => n.spec.id);
   }
 
   private canProvide(n: NodeSpec): Set<Need> {
@@ -151,7 +172,7 @@ export class Sim {
       if (touches) {
         r.stack = r.stack.filter((s) => !removed.includes(s));
         if (r.at && removed.includes(r.at)) r.serviceEnd = -1;
-        this.finish(r, 'dropped');
+        this.finish(r, 'dropped', false, 'hotfix');
       }
     }
     if (this.state === 'running' || this.t > 0) {
@@ -221,7 +242,7 @@ export class Sim {
         r.retryAt = -1;
         const holder = this.nodes.get(r.stack[r.stack.length - 1]);
         if (holder) this.route(r, holder);
-        else this.finish(r, 'dropped');
+        else this.finish(r, 'dropped', false, 'hotfix');
       }
     }
     for (const r of [...this.live.values()]) {
@@ -266,7 +287,7 @@ export class Sim {
       if (ev.kind === 'down') {
         node.health = 'down';
         // Everything inside it is lost.
-        for (const r of [...this.live.values()]) if (r.at === node.spec.id && !r.hop) this.finish(r, 'dropped');
+        for (const r of [...this.live.values()]) if (r.at === node.spec.id && !r.hop) this.finish(r, 'dropped', false, 'lost-in-crash');
         node.queue = [];
         node.inService = 0;
       } else if (ev.kind === 'slow' || ev.kind === 'hang') {
@@ -312,12 +333,13 @@ export class Sim {
         needs: [...(this.level.needs?.[type] ?? DEFAULT_NEEDS[type])],
         stack: [], at: src.spec.id, hop: null, serviceEnd: -1, async: false,
         attempts: 0, retryAt: -1, lastTried: null, origNeeds: 0,
-        returning: false, dead: false, calls: [], writeSlot: false, dispatchedTo: null,
+        returning: false, dead: false, calls: [], writeSlot: false, dispatchedTo: null, missed: [],
       };
       r.origNeeds = r.needs.length;
       this.live.set(r.id, r);
       this.arrivalsThisSecond++;
-      this.route(r, src);
+      if (type === 'static' && this.assetCdns.length) this.hop(r, src.spec.id, this.assetCdns[this.assetRr++ % this.assetCdns.length]);
+      else this.route(r, src);
     }
   }
 
@@ -327,21 +349,21 @@ export class Sim {
       if (node) node.incoming--;
       r.dispatchedTo = null;
     }
-    if (!node) return this.finish(r, 'dropped');
+    if (!node) return this.finish(r, 'dropped', false, 'hotfix');
     r.at = id;
     if (r.returning) {
       r.returning = false;
       return this.route(r, node);
     }
-    if (node.health === 'down') return this.finish(r, 'dropped');
-    if (node.flaky > 0 && this.rng() < node.flaky) return this.finish(r, 'dropped');
+    if (node.health === 'down') return this.finish(r, 'dropped', false, 'node-down');
+    if (node.flaky > 0 && this.rng() < node.flaky) return this.finish(r, 'dropped', false, 'flaky');
     const def = PARTS[node.spec.kind];
     if (def.service.default === 0 && def.capacity >= 9999) {
       node.served++;
       return this.afterService(r, node);
     }
     if (node.queue.length >= def.queueLimit && this.busy(node) >= def.capacity) {
-      return this.finish(r, 'dropped');
+      return this.finish(r, 'dropped', false, 'overflow');
     }
     node.queue.push(r);
   }
@@ -382,6 +404,7 @@ export class Sim {
       : node.spec.kind === 'readmodel' && !this.subscribed.has(node.spec.id)
         ? []
         : def.provides(r.type, roll);
+    if (node.spec.kind === 'cache' && !got.length && r.needs[0] === 'data' && !(this.out.get(node.spec.id) ?? []).length) r.missed.push(node.spec.id);
     if (got.length) r.needs = r.needs.filter((n) => !got.includes(n));
     if (!r.needs.length) return this.finish(r, r.type === 'bot' ? 'botok' : 'ok');
     this.route(r, node);
@@ -402,13 +425,19 @@ export class Sim {
       const target = this.nodes.get(id)!;
       if (hc && target.health === 'down') return false;
       if (brk && (node.brk[id]?.openUntil ?? -1) > this.t) return false;
-      if (r.stack.includes(id)) return false;
+      if (r.stack.includes(id) || r.missed.includes(id)) return false;
       return true;
     });
     // Steps happen in order: charge the card, then save the ticket.
     const next = r.needs[0];
     const direct = c.filter((id) => this.reach.get(id)!.has(next));
     if (!dumb && direct.length) c = direct;
+    // Cache-aside: look in the cache first. On a miss the request comes back
+    // (or the cache passes it on) and the next stop is the database.
+    if (!dumb && next === 'data') {
+      const cs = c.filter((id) => this.nodes.get(id)!.spec.kind === 'cache');
+      if (cs.length) c = cs;
+    }
     // The app sends writes to a queue when it has one.
     if (!r.async && r.needs.includes('write')) {
       const qs = c.filter((id) => this.nodes.get(id)!.spec.kind === 'queue');
@@ -423,14 +452,16 @@ export class Sim {
   }
 
   private route(r: LiveReq, node: NodeState) {
-    if (node.spec.kind === 'queue' && !r.async) return this.enqueueJob(r, node);
+    // A queue only takes work that can be done later. A read cannot wait.
+    if (node.spec.kind === 'queue' && !r.async && r.needs.every((n) => n === 'write' || n === 'pay')) return this.enqueueJob(r, node);
     const c = this.candidates(r, node);
     const id = node.spec.id;
     if (!c.length) {
       const top = r.stack[r.stack.length - 1];
       if (top && top !== id) return this.sendBack(r, id, top);
-      // Breaker open and nowhere else to go: fail fast.
-      return this.finish(r, 'dropped');
+      // Breaker open and nowhere else to go: fail fast. Otherwise it is a dead end.
+      const tripped = !!node.spec.opts?.breaker && (this.out.get(id) ?? []).some((o) => (node.brk[o]?.openUntil ?? -1) > this.t);
+      return this.finish(r, 'dropped', false, tripped ? 'breaker' : 'no-route');
     }
     const pick = c[node.rr++ % c.length];
     if (PARTS[node.spec.kind].holds && r.stack[r.stack.length - 1] !== id) {
@@ -456,10 +487,10 @@ export class Sim {
   // Queue-based load leveling: answer the fan now, do the work later.
   private enqueueJob(r: LiveReq, q: NodeState) {
     const limit = PARTS.queue.queueLimit;
-    if (q.queue.length >= limit) return this.finish(r, 'dropped');
+    if (q.queue.length >= limit) return this.finish(r, 'dropped', false, 'overflow');
     const job: LiveReq = {
       ...r, id: this.nextId++, async: true, stack: [], calls: [], deadline: this.t + ASYNC_DEADLINE,
-      at: q.spec.id, hop: null, serviceEnd: -1, returning: false, dead: false, writeSlot: false, dispatchedTo: null,
+      at: q.spec.id, hop: null, serviceEnd: -1, returning: false, dead: false, writeSlot: false, dispatchedTo: null, missed: [],
     };
     this.live.set(job.id, job);
     q.queue.push(job);
@@ -496,10 +527,10 @@ export class Sim {
       }
     }
     r.serviceEnd = -1;
-    this.finish(r, 'timeout', true);
+    this.finish(r, 'timeout', true, r.async ? 'async-expired' : 'timeout');
   }
 
-  private finish(r: LiveReq, outcome: Outcome, noRetry = false) {
+  private finish(r: LiveReq, outcome: Outcome, noRetry = false, why?: FailReason) {
     if (r.dead) return;
     const failed = outcome === 'dropped' || outcome === 'timeout';
 
@@ -552,17 +583,23 @@ export class Sim {
         s.ok++;
         s.latencies.push((this.t - r.born) * TICK_MS);
       }
+      if (!r.async) s.byType[r.type].ok++;
     } else if (outcome === 'blocked') s.blocked++;
-    else if (outcome === 'botok') s.botok++;
+    else if (outcome === 'botok') { s.botok++; s.byType.bot.ok++; }
     else if (r.type === 'bot') {
-      s.blocked++; // a bot that fell over is a bot that went away
+      s.botLost++; // a bot that fell over somewhere. Not a win for the rate limiter, not a fan.
+      s.byType.bot.failed++;
     } else {
       s.failed++;
+      s.byType[r.type].failed++;
       if (outcome === 'dropped') s.dropped++;
       else s.timeout++;
       if (r.async) s.asyncLost++;
       const n = this.nodes.get(where);
       if (n) n.failed++;
+      const reason = why ?? (outcome === 'timeout' ? 'timeout' : 'no-route');
+      const key = `${reason === 'no-route' ? `no-route(${r.needs[0] ?? '?'})` : reason}@${where || '?'}`;
+      s.why[key] = (s.why[key] ?? 0) + 1;
       this.budget -= 1 + penalty;
       this.checkPaged();
     }
@@ -617,8 +654,39 @@ export class Sim {
   }
 }
 
+// A gateway earns its price by sending different calls to different services.
+// With one kind of service behind it there is nothing to route, and a load
+// balancer does the job for far less. That is billed as an idle gateway.
+export const IDLE_GATEWAY_EXTRA = 100; // $/month on top of the gateway's own cost
+
+// What a part can do for a request, counting everything wired downstream.
+function capabilities(d: Design, id: string, seen = new Set<string>()): Set<string> {
+  const out = new Set<string>();
+  if (seen.has(id)) return out;
+  seen.add(id);
+  const n = d.nodes.find((x) => x.id === id);
+  if (!n) return out;
+  for (const t of REQ_TYPES) for (const need of PARTS[n.kind].provides(t, 0)) out.add(need);
+  if (n.kind === 'cache') out.add('data');
+  for (const e of d.edges) if (e.from === id) for (const c of capabilities(d, e.to, seen)) out.add(c);
+  return out;
+}
+
+// Gateways that have somewhere to send traffic but only one kind of service behind them.
+export function idleGateways(d: Design): string[] {
+  return d.nodes
+    .filter((n) => n.kind === 'gateway' && !n.fixed)
+    .filter((g) => {
+      const outs = d.edges.filter((e) => e.from === g.id).map((e) => e.to);
+      if (!outs.length) return false;
+      const kinds = new Set(outs.map((o) => [...capabilities(d, o)].sort().join('+')));
+      return kinds.size < 2;
+    })
+    .map((g) => g.id);
+}
+
 export function designCost(d: Design) {
-  return d.nodes.reduce((s, n) => s + (n.fixed ? 0 : PARTS[n.kind].cost), 0);
+  return d.nodes.reduce((s, n) => s + (n.fixed ? 0 : PARTS[n.kind].cost), 0) + idleGateways(d).length * IDLE_GATEWAY_EXTRA;
 }
 
 export function regionOf(n: NodeSpec): 'north' | 'south' | null {

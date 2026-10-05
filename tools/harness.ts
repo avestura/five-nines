@@ -19,6 +19,7 @@ function fmt(label: string, level: Level, d: Design) {
   const s = sim.stats;
   return {
     r,
+    sim,
     line:
       `  ${label.padEnd(5)} ${'*'.repeat(starCount(r)).padEnd(3)} ` +
       `${r.survived ? 'held ' : 'PAGED'} ok=${s.ok} fail=${s.failed} (drop ${s.dropped}, t/o ${s.timeout}, async ${s.asyncLost}) ` +
@@ -32,6 +33,11 @@ for (const level of LEVELS) {
   console.log(`${level.id} ${level.title}`);
   const ref = fmt('ref', level, level.reference);
   console.log(ref.line);
+  // Every part in a reference must earn its place. A part that never saw a request is a rule bug.
+  for (const nd of ref.sim.nodes.values()) {
+    if (nd.spec.fixed || nd.spec.kind === 'pubsub' || nd.served > 0) continue;
+    console.log(`  !! ${nd.spec.id} (${nd.spec.kind}) never served a request in the reference`); bad++;
+  }
   if (starCount(ref.r) < 3) { console.log('  !! reference does not get 3 stars'); bad++; }
   // Shortcut check: Fans wired straight to every data store must never pass.
   const stores = level.reference.nodes.filter((x) => ['db', 'replica', 'readmodel', 'cache', 'payment'].includes(x.kind));
@@ -39,6 +45,30 @@ for (const level of LEVELS) {
     const cheat = { nodes: level.reference.nodes, edges: stores.map((x) => ({ from: 'fans', to: x.id })) };
     const ch = fmt('cheat', level, cheat);
     if (ch.r.stars[0]) { console.log(ch.line + '\n  !! fans wired straight to the data still passes'); bad++; }
+  }
+  // Shortcut check: Fans wired straight to any non-front-door part must never pass.
+  for (const x of level.reference.nodes) {
+    if (['users', 'waf', 'cdn', 'lb', 'gateway', 'dns', 'web'].includes(x.kind) || x.kind === 'payment') continue;
+    const ch = fmt('cheat', level, { nodes: level.reference.nodes, edges: [...level.reference.edges.filter((e) => e.from !== 'fans'), { from: 'fans', to: x.id }] });
+    if (ch.r.stars[0]) { console.log(ch.line + `
+  !! fans wired straight to ${x.id} (${x.kind}) still passes`); bad++; }
+  }
+  // Shortcut check: a rate limiter or CDN wired to every server in place of the load balancer must not pass.
+  for (const lbNode of level.reference.nodes.filter((x) => x.kind === 'lb')) {
+    const feeders = level.reference.edges.filter((e) => e.to === lbNode.id).map((e) => e.from)
+      .filter((id) => ['waf', 'cdn'].includes(level.reference.nodes.find((x) => x.id === id)?.kind ?? ''));
+    if (!feeders.length) continue;
+    const behind = level.reference.edges.filter((e) => e.from === lbNode.id).map((e) => e.to);
+    const cheat = {
+      nodes: level.reference.nodes.filter((x) => x.id !== lbNode.id),
+      edges: [
+        ...level.reference.edges.filter((e) => e.from !== lbNode.id && e.to !== lbNode.id),
+        ...behind.map((to) => ({ from: feeders[0], to })),
+      ],
+    };
+    const ch = fmt('wafLB', level, cheat);
+    if (ch.r.stars[0]) { console.log(ch.line + `
+  !! ${feeders[0]} spreading traffic in place of the load balancer still passes`); bad++; }
   }
   // Shortcut check: skip the front door and let Fans spread traffic themselves.
   const doors = level.reference.nodes.filter((x) => ['lb', 'gateway', 'dns'].includes(x.kind)).map((x) => x.id);

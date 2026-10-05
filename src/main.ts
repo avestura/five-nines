@@ -55,6 +55,7 @@ function showMap() {
           h('div', { class: 'title-settings' },
             h('span', {}, 'names:'), naming('generic', 'Generic'), naming('azure', 'Azure'), naming('aws', 'AWS'),
             h('button', { class: 'btn small', onclick: () => { save((x) => (x.muted = !x.muted)); showMap(); } }, s.muted ? 'Sound off' : 'Sound on'),
+            h('button', { class: `btn small ${s.debug ? 'on' : ''}`, title: 'Show the Debug button and the design check while drafting', onclick: () => { save((x) => (x.debug = !x.debug)); showMap(); } }, s.debug ? 'Debug on' : 'Debug off'),
           ),
         ),
         h('div', { class: 'title-row' },

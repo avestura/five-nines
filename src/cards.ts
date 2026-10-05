@@ -9,6 +9,7 @@ export interface Card {
   what: string;
   when: string;
   cost: string; // the trade-off, always honest
+  inGame?: string; // where the game simplifies the real thing, said plainly
   links: { label: string; href: string }[];
 }
 
@@ -63,10 +64,19 @@ export const CARDS: Record<string, Card> = {
     what: 'The queue says "order received" right away. Workers take jobs off it at the speed the database can handle.',
     when: 'Bursts of work that do not need to finish before the fan sees a reply.',
     cost: 'The fan gets "we are processing your order", not "done". And now you have to think about jobs that fail later.',
+    inGame: 'Only writes and payments can go through a queue here, because the fan does not wait for them. A page read needs its answer in the same request, so reads take the direct path: cache, replica, read model or database. Real systems also queue work that is not a write (reports the client polls for, cache warming, emails, events), but the game does not model that. The nearest thing is the read model in Release 3, where workers keep a copy fresh so reads stay fast.',
     links: [
       { label: 'Azure: Queue-Based Load Leveling', href: AZ + 'queue-based-load-leveling' },
       { label: 'Azure: Competing Consumers', href: AZ + 'competing-consumers' },
     ],
+  },
+  worker: {
+    id: 'worker', title: 'Worker', pattern: 'Competing Consumers',
+    what: 'Several workers pull jobs off one queue, each at its own pace. Add workers and the queue drains faster.',
+    when: 'Slow or bursty work that sits behind a queue.',
+    cost: 'A worker that dies mid-job leaves that job to be retried or lost, and jobs can run out of order.',
+    inGame: 'Workers only get jobs from a queue, so here they only do writes: save the order, charge the card, publish an event. They never answer a page read.',
+    links: [{ label: 'Azure: Competing Consumers', href: AZ + 'competing-consumers' }],
   },
   replica: {
     id: 'replica', title: 'Read replica', pattern: 'Read scale-out',
@@ -100,6 +110,7 @@ export const CARDS: Record<string, Card> = {
     what: 'One front door. It looks at each call and sends it to the service that owns it.',
     when: 'You have more than one backend and do not want fans to know that.',
     cost: 'One more hop, and one more thing that has to stay up.',
+    inGame: 'A gateway only pays for itself when different calls go to different services (orders to one app, browsing to another). With one kind of service behind it there is nothing to route, and a load balancer does the same job for less. The game bills that as an idle gateway: $100/mo extra on top of its $50.',
     links: [
       { label: 'Azure: Gateway Routing', href: AZ + 'gateway-routing' },
       { label: 'AWS: API routing', href: AWS + 'api-routing.html' },

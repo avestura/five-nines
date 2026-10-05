@@ -137,6 +137,18 @@ export interface Req {
 
 export type Outcome = 'ok' | 'dropped' | 'timeout' | 'blocked' | 'botok';
 
+// Why a request failed. Recorded with the node where it happened.
+export type FailReason =
+  | 'no-route' // reached a part with nothing downstream that can do the next step
+  | 'overflow' // slots and queue were both full
+  | 'node-down' // sent to a part that was down
+  | 'flaky' // the call failed at random (a flaky dependency)
+  | 'breaker' // a circuit breaker was open and there was nowhere else to go
+  | 'timeout' // the fan gave up waiting
+  | 'async-expired' // a queued order was never processed in time
+  | 'lost-in-crash' // was inside a part when it went down
+  | 'hotfix'; // was on a part removed by a mid-run hotfix
+
 export interface NodeState {
   spec: NodeSpec;
   health: Health;
@@ -175,4 +187,7 @@ export interface RunStats {
   latencies: number[]; // ms, successful user requests
   strikes: number;
   halfDone: number; // failed after some steps succeeded, with nothing to undo them
+  botLost: number; // bots that failed somewhere other than the rate limiter (not blocked, not served)
+  why: Record<string, number>; // "reason@node" or "no-route(need)@node" -> count, user requests only
+  byType: Record<ReqType, { ok: number; failed: number }>;
 }

@@ -1,7 +1,9 @@
 import { h, clear, fitCanvas } from '../dom';
 import { GRID } from '../theme';
-import { PARTS, isPlaceable, wireProblem, FANS_ONE_ADDRESS } from '../sim/parts';
-import { Sim, designCost } from '../sim/engine';
+import { PARTS, isPlaceable, wireProblem, wouldCycle, ONE_NEXT_HOP, oneHopMessage, NO_LOOPS } from '../sim/parts';
+import { Sim, designCost, idleGateways, IDLE_GATEWAY_EXTRA } from '../sim/engine';
+import { checkDesign } from '../sim/check';
+import { dumpState } from '../sim/dump';
 import { TICKS_PER_SECOND_REAL, type Design, type EdgeSpec, type Level, type NodeOpts, type NodeSpec, type PartKind } from '../sim/types';
 import { CARDS } from '../cards';
 import { load, save } from '../store';
@@ -41,6 +43,7 @@ export class Game {
   level: Level;
   design: Design;
   sim: Sim | null = null;
+  private lastSim: Sim | null = null; // the most recent run, kept for the debug dump after Reset
   mode: Mode = 'build';
   speed = 1;
   selNode: string | null = null;
@@ -111,6 +114,7 @@ export class Game {
     window.addEventListener('pointerup', this.onWindowUp);
     this.renderTop();
     this.renderTray();
+    this.updateBanner();
   }
 
   private onResize = () => this.renderTop();
@@ -150,6 +154,7 @@ export class Game {
       h('button', { class: `btn ${this.mode === 'run' ? '' : 'go'}`, onclick: () => this.toggleRun(), disabled: this.mode === 'over' }, runLabel),
       h('button', { class: 'btn', onclick: () => this.reset(), title: 'Stop and go back to drafting (R)' }, 'Reset'),
       h('button', { class: 'btn small', onclick: () => this.showIntro(), title: 'Brief' }, '?'),
+      ...(load().debug ? [h('button', { class: 'btn small', onclick: () => this.showDebug(), title: 'Copy a compact text dump of this design and the last run, for bug reports' }, 'Debug')] : []),
     );
     this.updateTop();
   }
@@ -162,7 +167,8 @@ export class Game {
     this.budgetFill.className = `fill ${f < 0.25 ? 'crit' : f < 0.5 ? 'low' : ''}`;
     this.budgetLab.textContent = L.act ? `${Math.max(0, b)} / ${L.errorBudget}` : `${L.errorBudget - b} failed`;
     const cost = designCost(this.design);
-    this.moneyEl.textContent = L.maxCost ? `$${cost} / $${L.maxCost} mo` : `$${cost}/mo`;
+    const idle = idleGateways(this.design).length;
+    this.moneyEl.textContent = (L.maxCost ? `$${cost} / $${L.maxCost} mo` : `$${cost}/mo`) + (idle ? `  (+$${idle * IDLE_GATEWAY_EXTRA} idle gateway)` : '');
     this.moneyEl.className = `money ${L.maxCost && cost > L.maxCost ? 'over' : ''}`;
     this.clockEl.textContent = this.clockAt(this.sim ? this.sim.t / this.sim.endTick : 0);
   }
@@ -263,6 +269,9 @@ export class Game {
       });
       this.insp.append(h('label', { class: 'opt' }, cb, OPT_LABEL[o]));
     }
+    if (spec.kind === 'gateway' && idleGateways(this.design).includes(spec.id)) {
+      this.insp.append(h('p', { class: 'opt' }, `Idle gateway: everything behind it is the same kind of service, so there is nothing to route. A load balancer does this job for less. Costs +$${IDLE_GATEWAY_EXTRA}/mo extra.`));
+    }
     const card = CARDS[spec.kind];
     if (card) this.insp.append(cardEl(card, true));
     if (!spec.fixed && this.editable()) {
@@ -275,6 +284,7 @@ export class Game {
   private changed() {
     if (this.mode === 'paused') this.patched = true;
     save((s) => (s.designs[this.level.id] = encodeDesign(this.design)));
+    if (this.selNode) this.renderInspector();
     this.renderTray();
     this.updateTop();
     this.updateBanner();
@@ -315,11 +325,21 @@ export class Game {
     if (!a || !b) return;
     const problem = wireProblem(a.kind, b.kind);
     if (problem) return this.flash(problem);
-    if (a.kind === 'users' && this.design.edges.some((e) => e.from === from)) return this.flash(FANS_ONE_ADDRESS);
+    if (ONE_NEXT_HOP.includes(a.kind) && this.design.edges.some((e) => e.from === from)) return this.flash(oneHopMessage(a.kind));
     if (this.design.edges.some((e) => e.from === from && e.to === to)) return;
+    if (wouldCycle(this.design.edges, from, to)) return this.flash(NO_LOOPS);
     this.design.edges.push({ from, to });
     audio.wire();
     this.changed();
+  }
+
+  // Would a wire from a to b be accepted by addEdge?
+  private canWire(a: NodeSpec, b: NodeSpec) {
+    if (a.id === b.id) return false;
+    if (wireProblem(a.kind, b.kind)) return false;
+    if (ONE_NEXT_HOP.includes(a.kind) && this.design.edges.some((e) => e.from === a.id)) return false;
+    if (this.design.edges.some((e) => e.from === a.id && e.to === b.id)) return false;
+    return !wouldCycle(this.design.edges, a.id, b.id);
   }
 
   // ---------- pointer ----------
@@ -444,6 +464,7 @@ export class Game {
   }
 
   reset() {
+    if (this.sim && this.sim.t > 0) this.lastSim = this.sim;
     this.sim = null;
     this.mode = 'build';
     this.patched = false;
@@ -467,18 +488,28 @@ export class Game {
     } else if (this.mode === 'build' && !this.design.edges.length) {
       b.style.display = 'block';
       b.textContent = 'Nothing is wired yet. Fans have nowhere to go.';
+    } else if (this.mode === 'build' && load().debug && this.checkProblems().length) {
+      const ps = this.checkProblems();
+      b.style.display = 'block';
+      b.textContent = `Design check: ${ps[0]}${ps.length > 1 ? `  (+${ps.length - 1} more, see Debug)` : ''}`;
     } else {
       b.style.display = 'none';
     }
   }
 
+  private checkProblems() {
+    return checkDesign(this.level, this.design).problems;
+  }
+
   private finish() {
     if (!this.sim) return;
+    this.lastSim = this.sim;
     this.mode = 'over';
     audio.hum(0);
     this.renderTop();
     showDebrief(this.sim, structuredClone(this.design), {
       retry: () => this.reset(),
+      debug: load().debug ? () => this.showDebug() : undefined,
       next: (lvl) => this.hooks.onNext(lvl),
       map: () => this.hooks.onExit(),
     });
@@ -547,7 +578,10 @@ export class Game {
         ctx.setLineDash([]);
       }
     }
+    const from = this.wireFrom ? byId.get(this.wireFrom) : undefined;
     for (const spec of this.design.nodes) {
+      // While drawing a wire, only parts it could legally end on stay bright.
+      ctx.globalAlpha = from && !this.canWire(from, spec) ? 0.25 : 1;
       drawNode(ctx, {
         spec,
         state: sim?.nodes.get(spec.id),
@@ -556,6 +590,7 @@ export class Game {
         showPort: this.editable(),
         wiring: this.wireFrom === spec.id,
       });
+      ctx.globalAlpha = 1;
     }
     if (sim) drawRequests(ctx, sim, frac);
     if (this.placing && this.pointer.inside) {
@@ -613,6 +648,29 @@ export class Game {
     this.banner.className = 'banner red';
     this.banner.textContent = text;
     setTimeout(() => this.updateBanner(), 4000);
+  }
+
+  // ---------- debug ----------
+
+  showDebug() {
+    const text = dumpState(this.level, this.design, this.sim ?? this.lastSim);
+    const close = () => back.remove();
+    const area = h('textarea', { readonly: true, spellcheck: false, style: 'width:100%;height:320px;font:12px ui-monospace,Consolas,monospace;box-sizing:border-box' }) as HTMLTextAreaElement;
+    area.value = text;
+    const copy = h('button', { class: 'btn primary' }, 'Copy');
+    copy.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(text); copy.textContent = 'Copied'; } catch { area.select(); copy.textContent = 'Press Ctrl+C'; }
+    });
+    const back: HTMLElement = h('div', { class: 'modal-back', onclick: (e: Event) => e.target === back && close() },
+      h('div', { class: 'modal wide' },
+        h('h2', {}, 'Debug dump'),
+        h('p', {}, 'Design, design check and the last run in a compact form. Paste it into a bug report. The CODE line rebuilds the exact design.'),
+        area,
+        h('div', { class: 'actions' }, copy, h('button', { class: 'btn', onclick: close }, 'Close')),
+      ),
+    );
+    document.body.append(back);
+    area.select();
   }
 
   // ---------- brief ----------

@@ -1,6 +1,6 @@
 import { PARTS } from './parts';
 import type { Sim } from './engine';
-import type { Design, Level, NodeOpts, NodeSpec, PartKind } from './types';
+import { GLOBAL_STRIP, type Design, type Level, type NodeOpts, type NodeSpec, type PartKind } from './types';
 
 // Turns what a run measured into a cause and a fix. Everything here is read
 // from the run (stats.why, byType, halfDone) and the design, never from the
@@ -150,8 +150,8 @@ export function diagnose(sim: Sim, level: Level, design: Design): Diagnosis {
 
   // A region went dark and only one region had parts.
   if (level.regions && level.chaos.some((c) => typeof c.target === 'object' && 'region' in c.target)) {
-    const inNorth = design.nodes.filter((x) => !x.fixed && x.x >= 192 && x.y < 336).length;
-    const inSouth = design.nodes.filter((x) => !x.fixed && x.x >= 192 && x.y >= 336).length;
+    const inNorth = design.nodes.filter((x) => !x.fixed && x.x >= GLOBAL_STRIP && x.y < 336).length;
+    const inSouth = design.nodes.filter((x) => !x.fixed && x.x >= GLOBAL_STRIP && x.y >= 336).length;
     if (!inNorth || !inSouth) {
       cands.push({
         n: sim.stats.failed,
@@ -159,6 +159,16 @@ export function diagnose(sim: Sim, level: Level, design: Design): Diagnosis {
         fixes: ['Build a complete copy of the stack in the other region and put a global router in the left strip in front of both.'],
       });
     }
+  }
+
+  // A read model that missed some writes is not used at all.
+  for (const [rm, missing] of sim.stale) {
+    const ws = missing.map((m) => byId.get(m)).filter(Boolean) as NodeSpec[];
+    cands.push({
+      n: sim.stats.failed + 1,
+      headline: `The read model (${rm}) was ignored: ${labels(ws)} save to the database but never publish an event, so it would have missed their writes.`,
+      fixes: [`Wire ${labels(ws)} to the event topic that feeds the read model. Every part that writes must announce it, or the read model goes stale.`],
+    });
   }
 
   cands.sort((a, b) => b.n - a.n);

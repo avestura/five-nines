@@ -94,6 +94,9 @@ export function showDebrief(sim: Sim, design: Design, act: Actions) {
   if (wiring && stuck.has('data') && design.nodes.some((x) => x.kind === 'queue')) {
     wiringFix.push('Reads cannot go through a queue: the fan needs the answer in the same request. Give them their own wire from the web servers to a cache, replica, read model or database.');
   }
+  if (wiring && stuck.has('data') && design.nodes.some((x) => x.kind === 'pubsub')) {
+    wiringFix.push('A topic carries events, not requests: nothing can be read through it. Wire the web servers straight to the read model. The topic only keeps the read model fresh.');
+  }
   for (const [key, n] of why) {
     const m = parse(key);
     if (!m || !sorry[m[1]] || m[1] === 'no-route') continue;

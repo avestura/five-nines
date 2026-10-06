@@ -66,6 +66,8 @@ export interface TrafficPoint {
 }
 
 export type Region = 'north' | 'south';
+// Width of the global strip on the left of a two-region board: fans and the global router live here.
+export const GLOBAL_STRIP = 288;
 
 export type ChaosKind = 'down' | 'slow' | 'hang' | 'recover' | 'flaky';
 
@@ -73,7 +75,7 @@ export interface ChaosEvent {
   at: number; // seconds
   kind: ChaosKind;
   // Either a fixed node id, or a selector over the player's parts.
-  target: string | { kind: PartKind; pick: 'first' | 'busiest' } | { region: Region };
+  target: string | { kind: PartKind; pick: 'first' | 'busiest' } | { region: Region | 'busiest' }; // 'busiest': the region holding most of the player's traffic
   note?: string; // shown on the forecast strip
 }
 

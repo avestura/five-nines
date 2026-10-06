@@ -68,22 +68,24 @@ const naive34 = design(
 
 // 3.5: one full stamp per region
 function stamp(tag: 'n' | 's', cy: number, webs = 3) {
-  const w = Array.from({ length: webs }, (_, i) => n('web', 552, cy + (i - (webs - 1) / 2) * 84, `web-${tag}${i + 1}`));
-  const nodes = [n('lb', 336, cy, `lb-${tag}`), ...w, n('cache', 768, cy, `cache-${tag}`), n('db', 984, cy, `db-${tag}`)];
+  const w = Array.from({ length: webs }, (_, i) => n('web', 624, cy + (i - (webs - 1) / 2) * 84, `web-${tag}${i + 1}`));
+  const nodes = [n('lb', 432, cy, `lb-${tag}`), ...w, n('cache', 816, cy, `cache-${tag}`), n('db', 1032, cy, `db-${tag}`)];
   const edges = [...fan(`lb-${tag}`, ids(w)), ...funnel(ids(w), `cache-${tag}`), ...wire(`cache-${tag}`, `db-${tag}`)];
   return { nodes, edges };
 }
 const north = stamp('n', 168);
 const south = stamp('s', 504);
 const north4 = stamp('n', 168, 4);
-const ref35 = design(
-  [n('dns', 120, 216, 'dns'), ...north.nodes, ...south.nodes],
-  [...wire('fans', 'dns'), ...fan('dns', ['lb-n', 'lb-s']), ...north.edges, ...south.edges],
-);
-const naive35 = design(
-  [n('dns', 120, 216, 'dns'), ...north4.nodes],
-  [...wire('fans', 'dns'), ...fan('dns', ['lb-n']), ...north4.edges],
-);
+// Fans sit at the left of the global strip, with the global router beside them.
+const FANS35: NodeSpec = { ...FANS, x: 72 };
+const ref35 = {
+  nodes: [FANS35, n('dns', 204, 336, 'dns'), ...north.nodes, ...south.nodes],
+  edges: [...wire('fans', 'dns'), ...fan('dns', ['lb-n', 'lb-s']), ...north.edges, ...south.edges],
+};
+const naive35 = {
+  nodes: [FANS35, n('dns', 204, 336, 'dns'), ...north4.nodes],
+  edges: [...wire('fans', 'dns'), ...fan('dns', ['lb-n']), ...north4.edges],
+};
 
 // 3.6
 const w36 = (opts: NodeOpts) => col('web', 'web', 4, 576, 336, 96, opts);
@@ -281,10 +283,11 @@ export const ACT3: Level[] = [
     clock: ['10:00', '10:30'],
     intro: [
       'You know how this one goes. At some point today a whole region will go dark. Every part in it. The status page will say green for the first forty minutes.',
-      'The board is split into two regions. Anything placed in the north goes down with the north.',
+      'The board is split into two regions, north and south. Anything placed in a region goes down with it.',
+      'Nobody knows which region it will be. If you lean on one, that is the one that fails.',
       'A global router lives in the strip on the left, outside both regions.',
     ],
-    goal: 'Lose the entire north region and keep selling tickets.',
+    goal: 'Lose an entire region, whichever you leaned on most, and keep selling tickets.',
     duration: 55,
     seed: 35,
     regions: true,
@@ -293,8 +296,8 @@ export const ACT3: Level[] = [
       { at: 15, rps: 150 },
       { at: 55, rps: 150 },
     ],
-    chaos: [{ at: 22, kind: 'down', target: { region: 'north' }, note: 'Region north goes dark' }],
-    fixed: [FANS],
+    chaos: [{ at: 22, kind: 'down', target: { region: 'busiest' }, note: 'Your busiest region goes dark' }],
+    fixed: [FANS35],
     catalog: [...ALL, 'shardrouter', 'pubsub', 'readmodel', 'dns'],
     options: ['healthCheck', 'retry', 'breaker', 'bulkhead'],
     maxCost: 1000,
@@ -306,12 +309,12 @@ export const ACT3: Level[] = [
     naive: naive35,
     postmortem: {
       win: [
-        'Summary: the north region vanished. The global router noticed, and every fan went south. Some of them noticed a slightly slower page.',
+        'Summary: a whole region vanished. The global router noticed, and every fan went to the other one. Some of them noticed a slightly slower page.',
         'What went well: deployment stamps across regions, with a global router that checks health.',
         'Known risk: the two regions each have their own database. Reconciling orders from the outage window is now somebody\'s whole week. Not yours. Probably.',
       ],
       lose: [
-        'Summary: everything lived in one region, and that region went away.',
+        'Summary: you leaned on one region, and that region went away.',
         'Root cause: redundancy inside a region does not help when the region is the thing that fails.',
       ],
       hint: 'Build a complete copy of the stack in each region. Put a global router in the left strip in front of both load balancers.',

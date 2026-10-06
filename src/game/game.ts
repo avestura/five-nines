@@ -1,6 +1,6 @@
 import { h, clear, fitCanvas } from '../dom';
 import { GRID } from '../theme';
-import { PARTS, isPlaceable, wireProblem, wouldCycle, ONE_NEXT_HOP, oneHopMessage, NO_LOOPS } from '../sim/parts';
+import { PARTS, ALLOWED, isPlaceable, wireProblem, wouldCycle, ONE_NEXT_HOP, oneHopMessage, NO_LOOPS } from '../sim/parts';
 import { Sim, designCost, idleGateways, IDLE_GATEWAY_EXTRA } from '../sim/engine';
 import { checkDesign } from '../sim/check';
 import { dumpState } from '../sim/dump';
@@ -355,7 +355,7 @@ export class Game {
     if (this.placing) return;
     if (this.editable()) {
       const port = hitPort(this.design, p.x, p.y);
-      if (port && port.kind !== 'db' && port.kind !== 'replica' && port.kind !== 'payment') {
+      if (port && ALLOWED[port.kind].length) {
         this.wireFrom = port.id;
         this.board.setPointerCapture(e.pointerId);
         return;

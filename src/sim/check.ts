@@ -155,7 +155,9 @@ export function checkDesign(level: Level, design: Design): Check {
     if (!to.some((t) => kindOf(t) === 'worker')) notes.push(`${nodeName(design, q.id)} has no worker behind it, so its jobs are never done.`);
   }
   for (const n of design.nodes.filter((x) => x.kind === 'readmodel' && seen.has(x.id))) {
-    if (!sim.subscribed.has(n.id)) notes.push(`${nodeName(design, n.id)} is not fed by an event topic that something publishes to, so it answers nothing.`);
+    const miss = sim.stale.get(n.id);
+    if (miss) notes.push(`${miss.map((m) => nodeName(design, m)).join(', ')} save${miss.length > 1 ? '' : 's'} to the database but ${miss.length > 1 ? 'do' : 'does'} not publish to a topic feeding ${nodeName(design, n.id)}, so the read model misses those writes and answers nothing.`);
+    else if (!sim.subscribed.has(n.id)) notes.push(`${nodeName(design, n.id)} is not fed by an event topic that something publishes to, so it answers nothing.`);
   }
   if (level.maxCost) {
     const cost = design.nodes.reduce((s, n) => s + (n.fixed ? 0 : PARTS[n.kind].cost), 0);

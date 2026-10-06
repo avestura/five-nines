@@ -3,7 +3,7 @@ import { makeRng, poisson, type Rng } from './rng';
 import {
   HOP_TICKS, TICKS_PER_SECOND_REAL, TICK_MS, REQ_TYPES,
   type Design, type FailReason, type Level, type Need, type NodeState, type Outcome, type Req,
-  type ReqType, type RunStats, type Snapshot, type NodeSpec, type ChaosEvent,
+  GLOBAL_STRIP, type Region, type ReqType, type RunStats, type Snapshot, type NodeSpec, type ChaosEvent,
 } from './types';
 
 const DEFAULT_NEEDS: Record<ReqType, Need[]> = {
@@ -50,6 +50,7 @@ export class Sim {
   out = new Map<string, string[]>();
   reach = new Map<string, Set<Need>>();
   subscribed = new Set<string>(); // read models fed by an event topic
+  stale = new Map<string, string[]>(); // read model -> writers that never publish to it
   // CDNs wired into the app. The page tells browsers to fetch files from them,
   // so static requests go straight there and never touch the web servers.
   assetCdns: string[] = [];
@@ -131,22 +132,40 @@ export class Sim {
     return s;
   }
 
+  // Web servers and workers that save straight to a database or shard map (or through a cache to one).
+  private writers(): string[] {
+    const store = (id: string) => ['db', 'shardrouter'].includes(this.nodes.get(id)?.spec.kind ?? '');
+    return [...this.nodes.values()]
+      .filter((n) => ['web', 'worker'].includes(n.spec.kind))
+      .filter((n) => (this.out.get(n.spec.id) ?? []).some((o) => store(o) || (this.nodes.get(o)?.spec.kind === 'cache' && (this.out.get(o) ?? []).some(store))))
+      .map((n) => n.spec.id);
+  }
+
   // reach[n] = every need that n or something downstream of n can satisfy.
   private computeReach() {
     this.reach.clear();
     // A read model is only useful if a topic feeds it, and something
     // publishes to that topic.
     this.subscribed.clear();
+    this.stale.clear();
     const into = (id: string) => [...this.out.entries()].filter(([, outs]) => outs.includes(id)).map(([from]) => from);
     for (const [id, n] of this.nodes) {
       if (n.spec.kind !== 'readmodel') continue;
-      const fed = into(id).some((t) => this.nodes.get(t)?.spec.kind === 'pubsub' && into(t).some((p) => this.nodes.get(p)?.spec.kind !== 'users'));
-      if (fed) this.subscribed.add(id);
+      const topics = into(id).filter((t) => this.nodes.get(t)?.spec.kind === 'pubsub');
+      const fed = topics.some((t) => into(t).some((p) => this.nodes.get(p)?.spec.kind !== 'users'));
+      // Every part that writes to the data has to announce it, or the read
+      // model misses those writes and its answers cannot be trusted.
+      const missing = this.writers().filter((w) => !topics.some((t) => (this.out.get(w) ?? []).includes(t)));
+      if (fed && !missing.length) this.subscribed.add(id);
+      else if (fed) this.stale.set(id, missing);
     }
     const visit = (id: string, stack: Set<string>): Set<Need> => {
       const cached = this.reach.get(id);
       if (cached) return cached;
       const node = this.nodes.get(id)!;
+      // A topic carries events, not requests. Nothing can be asked through it, so
+      // it is never a stop on a request's route. It only feeds its subscribers.
+      if (node.spec.kind === 'pubsub') { const none = new Set<Need>(); this.reach.set(id, none); return none; }
       const s = this.canProvide(node.spec);
       if (stack.has(id)) return s;
       stack.add(id);
@@ -305,7 +324,20 @@ export class Sim {
       const n = this.nodes.get(tg);
       return n ? [n] : [];
     }
-    if ('region' in tg) return [...this.nodes.values()].filter((n) => regionOf(n.spec) === tg.region);
+    if ('region' in tg) {
+      let region: Region | null = null;
+      if (tg.region === 'busiest') {
+        // Nobody knows which region fails, so it is the one you leaned on most.
+        // Ties go north.
+        const load = { north: 0, south: 0 };
+        for (const n of this.nodes.values()) {
+          const r = regionOf(n.spec);
+          if (r && !n.spec.fixed) load[r] += 1 + n.served;
+        }
+        region = load.south > load.north ? 'south' : 'north';
+      } else region = tg.region;
+      return [...this.nodes.values()].filter((n) => regionOf(n.spec) === region);
+    }
     const list = [...this.nodes.values()].filter((n) => n.spec.kind === tg.kind && !n.spec.fixed);
     if (!list.length) return [];
     if (tg.pick === 'first') return [list[0]];
@@ -338,7 +370,12 @@ export class Sim {
       r.origNeeds = r.needs.length;
       this.live.set(r.id, r);
       this.arrivalsThisSecond++;
-      if (type === 'static' && this.assetCdns.length) this.hop(r, src.spec.id, this.assetCdns[this.assetRr++ % this.assetCdns.length]);
+      if (type === 'static' && this.assetCdns.length) {
+        // Edge addresses are health-checked: fans are not sent to a CDN that is down while another is up.
+        const up = this.assetCdns.filter((id) => this.nodes.get(id)?.health !== 'down');
+        const pool = up.length ? up : this.assetCdns;
+        this.hop(r, src.spec.id, pool[this.assetRr++ % pool.length]);
+      }
       else this.route(r, src);
     }
   }
@@ -432,6 +469,11 @@ export class Sim {
     const next = r.needs[0];
     const direct = c.filter((id) => this.reach.get(id)!.has(next));
     if (!dumb && direct.length) c = direct;
+    // CQRS: when a read model is wired, queries go to it, not to the database.
+    if (!dumb && next === 'data') {
+      const rm = c.filter((id) => this.nodes.get(id)!.spec.kind === 'readmodel');
+      if (rm.length) c = rm;
+    }
     // Cache-aside: look in the cache first. On a miss the request comes back
     // (or the cache passes it on) and the next stop is the database.
     if (!dumb && next === 'data') {
@@ -691,6 +733,6 @@ export function designCost(d: Design) {
 
 export function regionOf(n: NodeSpec): 'north' | 'south' | null {
   if (n.fixed && n.kind === 'users') return null;
-  if (n.x < 192) return null; // the global strip on the left
+  if (n.x < GLOBAL_STRIP) return null; // the global strip on the left
   return n.y < 336 ? 'north' : 'south';
 }

@@ -88,6 +88,35 @@ was refused or silently did nothing.
     cheaper stand-in (a gateway vs a load balancer), decide how "not needed" is
     detected and make that visible everywhere cost is shown.
 
+14. **The UI must not offer what the rules refuse.** The wiring grip on a part
+    shows only if `ALLOWED[kind]` is non-empty. Do not hard-code lists of kinds
+    in the UI; derive from the table.
+
+15. **A part that carries events must not be a stop on a request's route.** A
+    player routed reads web > topic > read model and passed 3.4 with topics
+    "serving" requests. A topic only feeds subscribers (its reach is empty in
+    `computeReach`). When adding a part, say whether requests pass through it,
+    and add a negative case to `tools/audit.ts` (things that must not work).
+16. **Eventual consistency has to be paid for.** A read model only answers if
+    every web server or worker that writes to the data also publishes to its
+    topic (`stale` in the engine). One publisher out of five is not CQRS, it is
+    a read model that misses 80% of writes. If you add a derived copy of data,
+    decide what makes it trustworthy and enforce that.
+17. **Follow the real read path.** With a read model wired, queries go to it and
+    not to the database (CQRS); with a cache wired, the cache is asked first.
+
+18. **Chaos must not be predictable from the board.** If a level says "this
+    fails" and the player can see where, they will simply avoid it (3.5: put
+    everything in the south). Target the part or region the player leans on
+    (`pick: 'busiest'`, `region: 'busiest'`), never a fixed spot, and add a
+    harness cheat that dodges it.
+
+19. **Board geometry lives in constants.** The global strip of a two-region board
+    is `GLOBAL_STRIP` in `src/sim/types.ts`; the engine, renderer, diagnosis and
+    harness all read it. Do not hard-code pixel positions for it, and give the
+    player room for every part the level asks them to place (3.5 moves Fans left
+    so the global router fits beside them).
+
 ## When adding a part or a level
 
 - New part: add it to `PARTS`, `ALLOWED`, the sandbox catalog, a card in

@@ -1,7 +1,7 @@
 import { C, FONT_HAND, FONT_MONO, FONT_STAMP, GRID } from '../theme';
-import { PARTS } from '../sim/parts';
+import { PARTS, ALLOWED } from '../sim/parts';
 import type { Sim } from '../sim/engine';
-import type { Design, EdgeSpec, NodeSpec, NodeState, PartKind, ReqType, Snapshot } from '../sim/types';
+import { GLOBAL_STRIP, type Design, type EdgeSpec, type NodeSpec, type NodeState, type PartKind, type ReqType, type Snapshot } from '../sim/types';
 import type { Naming } from '../store';
 
 export const WORLD_W = 1152;
@@ -216,7 +216,7 @@ export function drawNode(ctx: CanvasRenderingContext2D, v: NodeView) {
   }
 
   // wiring port
-  if (v.showPort && spec.kind !== 'db' && spec.kind !== 'replica' && spec.kind !== 'payment') {
+  if (v.showPort && ALLOWED[spec.kind].length) {
     ctx.fillStyle = v.wiring ? C.blue : C.paper;
     ctx.strokeStyle = C.blue;
     ctx.lineWidth = 1.5;
@@ -345,23 +345,23 @@ export function drawReplay(ctx: CanvasRenderingContext2D, design: Design, snap: 
 // Two regions for the multi-region levels. The strip on the left is global.
 export function drawRegions(ctx: CanvasRenderingContext2D, sim: Sim | null) {
   const dark = (r: 'north' | 'south') =>
-    !!sim && [...sim.nodes.values()].some((n) => !n.spec.fixed && n.health === 'down' && (r === 'north' ? n.spec.y < 336 : n.spec.y >= 336) && n.spec.x >= 192);
+    !!sim && [...sim.nodes.values()].some((n) => !n.spec.fixed && n.health === 'down' && (r === 'north' ? n.spec.y < 336 : n.spec.y >= 336) && n.spec.x >= GLOBAL_STRIP);
   ctx.save();
   ctx.setLineDash([10, 6]);
   ctx.strokeStyle = C.blue;
   ctx.lineWidth = 1.5;
-  ctx.strokeRect(192, 12, WORLD_W - 204, 312);
-  ctx.strokeRect(192, 348, WORLD_W - 204, 312);
+  ctx.strokeRect(GLOBAL_STRIP, 12, WORLD_W - GLOBAL_STRIP - 12, 312);
+  ctx.strokeRect(GLOBAL_STRIP, 348, WORLD_W - GLOBAL_STRIP - 12, 312);
   ctx.setLineDash([]);
   for (const [r, y] of [['north', 12], ['south', 348]] as const) {
     if (dark(r)) {
       ctx.fillStyle = 'rgba(34,37,43,0.12)';
-      ctx.fillRect(192, y, WORLD_W - 204, 312);
+      ctx.fillRect(GLOBAL_STRIP, y, WORLD_W - GLOBAL_STRIP - 12, 312);
     }
     ctx.fillStyle = C.blue;
     ctx.font = `14px ${FONT_STAMP}`;
     ctx.textAlign = 'left';
-    ctx.fillText(r === 'north' ? 'REGION NORTH  (us-east-1, obviously)' : 'REGION SOUTH', 204, y + 18);
+    ctx.fillText(r === 'north' ? 'REGION NORTH  (us-east-1, obviously)' : 'REGION SOUTH', GLOBAL_STRIP + 12, y + 18);
   }
   ctx.fillStyle = C.inkSoft;
   ctx.font = `12px ${FONT_HAND}`;

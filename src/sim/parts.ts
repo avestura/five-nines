@@ -107,7 +107,7 @@ export const PARTS: Record<PartKind, PartDef> = {
     kind: 'readmodel', name: 'Read model', short: 'VIEW', azure: 'Cosmos DB', aws: 'DynamoDB',
     cost: 70, capacity: 16, queueLimit: 60, service: { default: 2 }, holds: false,
     provides: (t) => (t === 'read' || t === 'bot' ? ['data'] : []),
-    blurb: 'A copy shaped for reading, kept fresh by events. Only works if it is subscribed to a topic.',
+    blurb: 'A copy shaped for reading, kept fresh by events. Only works if it is subscribed to a topic, and every part that writes to the data publishes to it.',
   },
 };
 

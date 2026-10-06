@@ -37,7 +37,20 @@ const cases: Case[] = [
   { name: 'read model', part: 'readmodel', nodes: [...base, ['mq', 'queue'], ['k', 'worker'], ['db', 'db'], ['t', 'pubsub'], ['v', 'readmodel']], edges: web2('w1>mq,v w2>mq,v mq>k k>db,t t>v') },
 ];
 
+// Things that must NOT work, because they are not how the real parts behave.
+const negatives: { name: string; nodes: [string, PartKind][]; edges: string; failType?: 'read' | 'write'; quiet?: string }[] = [
+  { name: 'reading through an event topic', nodes: [...base, ['mq', 'queue'], ['k', 'worker'], ['db', 'db'], ['t', 'pubsub'], ['v', 'readmodel']], edges: web2('w1>mq,t w2>mq,t mq>k k>db,t t>v'), failType: 'read' },
+  { name: 'read model when only one of two writers publishes', nodes: [...base, ['db', 'db'], ['t', 'pubsub'], ['v', 'readmodel']], edges: web2('w1>db,v,t w2>db,v t>v'), quiet: 'v' },
+];
+
 let bad = 0;
+for (const c of negatives) {
+  const d = { nodes: [FANS, ...c.nodes.map(([id, kind], i) => ({ id, kind, x: 300 + i * 20, y: 300 }))], edges: c.edges.split(/\s+/).flatMap((g) => { const [a, bs] = g.split('>'); return bs.split(',').map((b) => ({ from: a, to: b })); }) };
+  const sim = new Sim(level, d);
+  sim.runToEnd();
+  if (c.quiet && sim.nodes.get(c.quiet)!.served > 0) { bad++; console.log(`FAIL (should not work) ${c.name}: ${c.quiet} served requests`); }
+  if (c.failType && sim.stats.byType[c.failType].ok > 0) { bad++; console.log(`FAIL (should not work) ${c.name}: ${sim.stats.byType[c.failType].ok} ${c.failType}s succeeded`); }
+}
 for (const c of cases) {
   const nodes: NodeSpec[] = [FANS, ...c.nodes.map(([id, kind], i) => ({ id, kind, x: 300 + i * 20, y: 300 }))];
   const edges: EdgeSpec[] = c.edges.split(/\s+/).flatMap((g) => {

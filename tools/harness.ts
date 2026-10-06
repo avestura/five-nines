@@ -3,7 +3,7 @@
 import { LEVELS } from '../src/levels';
 import { Sim } from '../src/sim/engine';
 import { score, starCount } from '../src/sim/score';
-import type { Design, Level } from '../src/sim/types';
+import { GLOBAL_STRIP, type Design, type Level } from '../src/sim/types';
 
 const only = process.argv[2];
 let bad = 0;
@@ -69,6 +69,12 @@ for (const level of LEVELS) {
     const ch = fmt('wafLB', level, cheat);
     if (ch.r.stars[0]) { console.log(ch.line + `
   !! ${feeders[0]} spreading traffic in place of the load balancer still passes`); bad++; }
+  }
+  // Shortcut check: everything in the south region. The failing region is whichever you lean on.
+  if (level.regions) {
+    const moved = { nodes: level.reference.nodes.map((x) => (!x.fixed && x.x >= GLOBAL_STRIP && x.y < 336 ? { ...x, y: x.y + 336 } : x)), edges: level.reference.edges };
+    const ch = fmt('south', level, moved);
+    if (ch.r.stars[0]) { console.log(ch.line + ' !! everything moved into one region still passes'); bad++; }
   }
   // Shortcut check: skip the front door and let Fans spread traffic themselves.
   const doors = level.reference.nodes.filter((x) => ['lb', 'gateway', 'dns'].includes(x.kind)).map((x) => x.id);

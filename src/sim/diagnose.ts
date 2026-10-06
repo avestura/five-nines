@@ -120,6 +120,11 @@ export function diagnose(sim: Sim, level: Level, design: Design): Diagnosis {
   if (over) {
     const where = nodes(over.at);
     const fixes: string[] = [];
+    // Bots eat slots too. A rate limiter turns them away before they cost anything.
+    const botty = level.traffic.some((p) => (p.mix?.bot ?? 0) >= 0.1);
+    if (botty && has('waf') && !mine(['waf']).length && sim.stats.botok + sim.stats.botLost > 20) {
+      fixes.push(`${sim.stats.botok + sim.stats.botLost} bot requests got in and used up slots. Put a rate limiter first in line: it turns bots away before they cost anything.`);
+    }
     for (const w of oneEach(where).slice(0, 2)) fixes.push(...capacityFix(w));
     const noBulk = offOn(mine(['web']), 'bulkhead');
     if (slowChaos && noBulk.length && optAvail('bulkhead') && where.some((w) => w.kind === 'web') && sim.stats.byType.read.failed > 0) {
@@ -129,12 +134,25 @@ export function diagnose(sim: Sim, level: Level, design: Design): Diagnosis {
     cands.push({ n: over.n, headline: `${over.n} requests were turned away because ${labels(where)} had no free slots and a full queue.${held}`, fixes });
   }
 
-  // Orders still waiting in a queue when time ran out.
-  const aged = sums.get('async-expired');
+  // Orders that sat in a queue past their deadline. They are still worked, but the fan gave up.
+  const aged = sums.get('async-late');
   if (aged) {
-    const fixes = ['The queue filled faster than the workers drained it, or the database behind them could not take what they sent.'];
-    if (has('worker')) fixes.push('Add workers, or wire a shard map and a second database behind them.');
-    cands.push({ n: aged.n, headline: `${aged.n} queued orders were never processed in time.`, fixes });
+    const queues = nodes(aged.at).filter((x) => x.kind === 'queue');
+    // Find what the queue drains into and which of those parts were full.
+    const behind = new Set<string>();
+    const walk = (id: string) => { for (const e of design.edges) if (e.from === id && !behind.has(e.to)) { behind.add(e.to); walk(e.to); } };
+    for (const q of queues) walk(q.id);
+    const peak: Record<string, number> = {};
+    for (const sn of sim.snapshots) for (const [id, u] of Object.entries(sn.util)) peak[id] = Math.max(peak[id] ?? 0, u);
+    const hot = [...behind].map((id) => byId.get(id)).filter((x): x is NodeSpec => !!x && (peak[x.id] ?? 0) >= 0.9 && ['worker', 'db', 'cache', 'replica', 'shardrouter', 'payment'].includes(x.kind));
+    const fixes: string[] = [];
+    let headline = `${aged.n} queued orders were late: they waited in ${labels(queues.length ? queues : nodes(aged.at))} for more than 4 seconds, so the fans gave up.`;
+    if (hot.length) headline += ` ${labels(hot)} ${hot.length > 1 ? 'were' : 'was'} at 90% or more of ${hot.length > 1 ? 'their' : 'its'} slots behind it.`;
+    if (hot.some((x) => x.kind === 'worker') && has('worker')) fixes.push('The workers were full. Add workers: each one pulls jobs at its own pace, so more workers drain the queue faster.');
+    if (hot.some((x) => x.kind === 'db') && has('shardrouter')) fixes.push('The database behind the workers was full. A shard map and a second database give writes more room.');
+    else if (hot.some((x) => x.kind === 'db')) fixes.push('The database behind the workers was full. It cannot take more writes per second, so the queue backs up however many workers you add.');
+    if (!hot.length) fixes.push('Nothing behind the queue looked full, so check that the queue has workers wired to it.');
+    cands.push({ n: aged.n, headline, fixes });
   }
 
   // Half an order.

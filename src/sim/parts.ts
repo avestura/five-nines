@@ -171,6 +171,15 @@ export function isPlaceable(k: PartKind) {
   return k !== 'users' && k !== 'payment';
 }
 
+// Databases owned by a shard map. Rows live where the shard map says, so only
+// the shard map may call them: a cache or app wired straight to one would
+// read rows that may live on another shard.
+export function ownedByShardMap(nodes: { id: string; kind: PartKind }[], edges: { from: string; to: string }[]): Set<string> {
+  const kind = new Map(nodes.map((n) => [n.id, n.kind]));
+  return new Set(edges.filter((e) => kind.get(e.from) === 'shardrouter' && kind.get(e.to) === 'db').map((e) => e.to));
+}
+export const SHARD_OWNED = 'That database belongs to the shard map. Wire to the shard map instead, so each row is looked up on the shard that holds it.';
+
 // Would adding from -> to close a loop? Requests would circle forever.
 export function wouldCycle(edges: { from: string; to: string }[], from: string, to: string): boolean {
   const seen = new Set<string>([to]);

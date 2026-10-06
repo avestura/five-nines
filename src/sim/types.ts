@@ -47,6 +47,7 @@ export interface NodeSpec {
   fixed?: boolean; // placed by the level, cannot move or delete
   label?: string;
   opts?: NodeOpts;
+  handles?: ReqType[]; // an app that only serves some kinds of request (fixed apps in a level)
 }
 
 export interface EdgeSpec {
@@ -110,6 +111,7 @@ export interface Level {
     win: string[];
     lose: string[];
     hint: string; // the pattern that would have helped
+    pattern?: { part?: PartKind; opt?: keyof NodeOpts }[]; // what the win text praises; shown only if the design used it
   };
 }
 
@@ -147,7 +149,7 @@ export type FailReason =
   | 'flaky' // the call failed at random (a flaky dependency)
   | 'breaker' // a circuit breaker was open and there was nowhere else to go
   | 'timeout' // the fan gave up waiting
-  | 'async-expired' // a queued order was never processed in time
+  | 'async-late' // a queued order sat unprocessed past its deadline (it is still worked, but the fan has given up)
   | 'lost-in-crash' // was inside a part when it went down
   | 'hotfix'; // was on a part removed by a mid-run hotfix
 

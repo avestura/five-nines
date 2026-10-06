@@ -11,6 +11,7 @@
     "check": "tsx tools/check.ts",
     "audit": "tsx tools/audit.ts",
     "diagnose": "tsx tools/diagnose.ts",
+    "playtest": "tsx tools/playtest.ts",
     "replay": "tsx tools/replay.ts"
   },
   "devDependencies": {

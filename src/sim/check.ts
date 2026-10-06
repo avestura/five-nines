@@ -1,5 +1,5 @@
 import { Sim } from './engine';
-import { PARTS, ONE_NEXT_HOP, wireProblem, wouldCycle } from './parts';
+import { PARTS, ONE_NEXT_HOP, SHARD_OWNED, ownedByShardMap, wireProblem, wouldCycle } from './parts';
 import { REQ_TYPES, type Design, type Level, type Need, type ReqType } from './types';
 
 // A static look at a design before it runs: which wires the engine will
@@ -67,6 +67,7 @@ export function checkDesign(level: Level, design: Design): Check {
   const badWires: BadWire[] = [];
   const seenFrom = new Map<string, number>();
   const accepted: { from: string; to: string }[] = [];
+  const owned = ownedByShardMap(design.nodes, design.edges);
   for (const e of design.edges) {
     const a = byId.get(e.from), b = byId.get(e.to);
     if (!a || !b) { badWires.push({ ...e, why: 'one end is missing' }); continue; }
@@ -77,6 +78,7 @@ export function checkDesign(level: Level, design: Design): Check {
       seenFrom.set(e.from, n);
       if (n > 1) { badWires.push({ ...e, why: `${PARTS[a.kind].name} only uses its first wire.${a.kind === 'users' ? '' : ' Put a load balancer after it to spread traffic.'}` }); continue; }
     }
+    if (owned.has(e.to) && a.kind !== 'shardrouter') { badWires.push({ ...e, why: SHARD_OWNED }); continue; }
     if (wouldCycle(accepted, e.from, e.to)) { badWires.push({ ...e, why: 'It makes a loop.' }); continue; }
     accepted.push(e);
   }
@@ -92,7 +94,8 @@ export function checkDesign(level: Level, design: Design): Check {
   }
   for (const id of sim.assetCdns) seen.add(id);
   const unreachable = design.nodes.filter((n) => !seen.has(n.id) && n.kind !== 'payment' && !n.fixed).map((n) => n.id);
-  const sinks: string[] = ['db', 'replica', 'readmodel', 'payment', 'users'];
+  // A CDN is a sink for files, and a cache may sit beside the database (cache-aside).
+  const sinks: string[] = ['db', 'replica', 'readmodel', 'payment', 'users', 'cdn', 'cache'];
   const deadEnds = design.nodes
     .filter((n) => seen.has(n.id) && !sinks.includes(n.kind) && !(sim.out.get(n.id) ?? []).length)
     .map((n) => n.id);

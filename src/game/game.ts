@@ -1,6 +1,6 @@
 import { h, clear, fitCanvas } from '../dom';
 import { GRID } from '../theme';
-import { PARTS, ALLOWED, isPlaceable, wireProblem, wouldCycle, ONE_NEXT_HOP, oneHopMessage, NO_LOOPS } from '../sim/parts';
+import { PARTS, ALLOWED, isPlaceable, wireProblem, wouldCycle, ONE_NEXT_HOP, oneHopMessage, NO_LOOPS, ownedByShardMap, SHARD_OWNED } from '../sim/parts';
 import { Sim, designCost, idleGateways, IDLE_GATEWAY_EXTRA } from '../sim/engine';
 import { checkDesign } from '../sim/check';
 import { dumpState } from '../sim/dump';
@@ -272,6 +272,10 @@ export class Game {
     if (spec.kind === 'gateway' && idleGateways(this.design).includes(spec.id)) {
       this.insp.append(h('p', { class: 'opt' }, `Idle gateway: everything behind it is the same kind of service, so there is nothing to route. A load balancer does this job for less. Costs +$${IDLE_GATEWAY_EXTRA}/mo extra.`));
     }
+    if (spec.handles) {
+      const names: Record<string, string> = { read: 'page reads', write: 'orders', static: 'files', bot: 'scraper traffic' };
+      this.insp.append(h('p', { class: 'opt' }, `This app only handles ${spec.handles.map((t) => names[t]).join(', ')}. Anything else sent to it has nowhere to go.`));
+    }
     const card = CARDS[spec.kind];
     if (card) this.insp.append(cardEl(card, true));
     if (!spec.fixed && this.editable()) {
@@ -327,6 +331,7 @@ export class Game {
     if (problem) return this.flash(problem);
     if (ONE_NEXT_HOP.includes(a.kind) && this.design.edges.some((e) => e.from === from)) return this.flash(oneHopMessage(a.kind));
     if (this.design.edges.some((e) => e.from === from && e.to === to)) return;
+    if (b.kind === 'db' && a.kind !== 'shardrouter' && ownedByShardMap(this.design.nodes, this.design.edges).has(to)) return this.flash(SHARD_OWNED);
     if (wouldCycle(this.design.edges, from, to)) return this.flash(NO_LOOPS);
     this.design.edges.push({ from, to });
     audio.wire();
@@ -339,6 +344,7 @@ export class Game {
     if (wireProblem(a.kind, b.kind)) return false;
     if (ONE_NEXT_HOP.includes(a.kind) && this.design.edges.some((e) => e.from === a.id)) return false;
     if (this.design.edges.some((e) => e.from === a.id && e.to === b.id)) return false;
+    if (b.kind === 'db' && a.kind !== 'shardrouter' && ownedByShardMap(this.design.nodes, this.design.edges).has(b.id)) return false;
     return !wouldCycle(this.design.edges, a.id, b.id);
   }
 

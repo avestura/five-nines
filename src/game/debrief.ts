@@ -57,7 +57,7 @@ export function showDebrief(sim: Sim, design: Design, act: Actions) {
     flaky: (n, at) => `${n} calls to ${at} failed at random.`,
     breaker: (n, at) => `${n} requests failed fast at ${at} because its circuit breaker was open and it had nowhere else to go.`,
     timeout: (n, at) => `${n} fans gave up after 3 seconds while their request was at ${at}. Look at ${at} and what it waits on.`,
-    'async-expired': (n, at) => `${n} queued orders were still waiting at ${at} when their time ran out. Not enough workers, or the database behind them is too slow.`,
+    'async-late': (n, at) => `${n} queued orders were late: they waited at ${at} for more than 4 seconds. Not enough workers, or the database behind them is too slow.`,
     'lost-in-crash': (n, at) => `${n} requests were inside ${at} when it went down.`,
     hotfix: (n, at) => `${n} requests were on parts removed by a mid-run hotfix (${at}).`,
   };
@@ -106,17 +106,26 @@ export function showDebrief(sim: Sim, design: Design, act: Actions) {
   const bt = sim.stats.byType;
   const dead = wiring ? [] : (['read', 'write', 'static'] as const).filter((t) => bt[t].failed > 10 && bt[t].ok === 0);
   for (const t of dead) facts.push(`Every ${t} request failed (${bt[t].failed}). None got through, so check the route they take.`);
-  if (sim.stats.asyncLost > 0 && !why.some(([k]) => k.startsWith('async-expired'))) facts.push(`${sim.stats.asyncLost} queued orders were never processed.`);
+  if (sim.stats.asyncLost > 0 && !why.some(([k]) => k.startsWith('async-late'))) facts.push(`${sim.stats.asyncLost} queued orders were late.`);
   if (sim.stats.blocked > 0) facts.push(`The rate limiter turned away ${sim.stats.blocked} bot requests.`);
   if (sim.stats.botLost > 0) facts.push(`${sim.stats.botLost} more bot requests died inside your system without being blocked. They still used up your servers on the way.`);
   if (sim.stats.strikes > 0) facts.push(`${sim.stats.strikes} hotfix${sim.stats.strikes > 1 ? 'es were' : ' was'} deployed mid-incident.`);
   if (!facts.length) facts.push('Nothing notable. A boring incident report is the best kind.');
   const dx = diagnose(sim, L, design);
+  // The level's win text praises a pattern. Only say so if the design used it.
+  const OPT_TXT: Record<string, string> = { healthCheck: 'health checks', retry: 'retry', breaker: 'circuit breakers', bulkhead: 'the bulkhead', saga: 'saga' };
+  const idle = idleGateways(design);
+  const missingPattern = (L.postmortem.pattern ?? []).filter((req) =>
+    req.part ? !design.nodes.some((n) => n.kind === req.part && !(n.kind === 'gateway' && idle.includes(n.id)))
+      : !design.nodes.some((n) => !!n.opts?.[req.opt!]))
+    .map((req) => (req.part ? PARTS[req.part].name.toLowerCase() : OPT_TXT[req.opt!]));
   const problems = passed || !load().debug ? [] : checkDesign(L, design).problems;
 
   const pm = h('div', { class: 'pm' },
     h('h5', {}, 'Summary'),
-    ...(passed
+    ...(passed && missingPattern.length
+      ? [`Summary: it held without ${missingPattern.join(' or ')}, which is what this level is about.`, `The usual answer: ${L.postmortem.hint} Yours got there another way. That counts, and it is worth knowing why it worked.`]
+      : passed
       ? L.postmortem.win
       : wiring
         ? [`Summary: ${noRoute} of ${sim.stats.failed} failed requests hit a dead end: the drawing gave them no route to what they needed. Nothing ran out of capacity.`]

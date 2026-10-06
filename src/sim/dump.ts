@@ -29,7 +29,7 @@ export function dumpState(level: Level, design: Design, sim: Sim | null): string
 
   L.push('NODES ' + design.nodes.map((n) => {
     const o = Object.entries(n.opts ?? {}).filter(([, v]) => v).map(([k]) => OPT_SHORT[k] ?? k);
-    return `${n.id}:${n.kind}${n.fixed ? '*' : ''}${o.length ? `[${o.join(',')}]` : ''}`;
+    return `${n.id}:${n.kind}${n.fixed ? '*' : ''}${o.length ? `[${o.join(',')}]` : ''}${n.handles ? `{only ${n.handles.join('/')}}` : ''}`;
   }).join(' '));
 
   // Edges grouped by source: a>b,c
@@ -50,7 +50,7 @@ export function dumpState(level: Level, design: Design, sim: Sim | null): string
     const s = sim.stats;
     const r = score(sim, design);
     L.push(`RUN ${sim.state} t=${(sim.t / 20).toFixed(1)}/${level.duration}s budget ${sim.budget}/${level.errorBudget} success ${(r.success * 100).toFixed(2)}% p50/95/99 ${r.p50}/${r.p95}/${r.p99}ms stars ${r.stars.map((x) => (x ? '*' : '-')).join('')}`);
-    L.push(`OUTCOME ok=${s.ok} failed=${s.failed}(drop ${s.dropped} timeout ${s.timeout} async-lost ${s.asyncLost}) waf-blocked=${s.blocked} bots-served=${s.botok} bots-lost-elsewhere=${s.botLost} halfdone=${s.halfDone} strikes=${s.strikes}`);
+    L.push(`OUTCOME ok=${s.ok} failed=${s.failed}(drop ${s.dropped} timeout ${s.timeout} async-late ${s.asyncLost}) waf-blocked=${s.blocked} bots-served=${s.botok} bots-lost-elsewhere=${s.botLost} halfdone=${s.halfDone} strikes=${s.strikes}`);
     L.push('BYTYPE ' + REQ_TYPES.map((t) => `${t} ${s.byType[t].ok}ok/${s.byType[t].failed}fail`).join('  '));
     const why = Object.entries(s.why).sort((a, b) => b[1] - a[1]).slice(0, 8);
     if (why.length) L.push('WHY ' + why.map(([k, v]) => `${k}:${v}`).join('  '));

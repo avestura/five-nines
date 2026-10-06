@@ -11,6 +11,7 @@ npm run harness   # every reference wins, every naive design loses, no shortcuts
 npm run check     # static design check passes on every reference
 npm run audit     # real-world arrangements are accepted AND do something
 npm run diagnose  # debrief causes/fixes for every naive design; teaching switches must be named
+npm run playtest  # ~130 hand-written solutions per level; '!!' lines are where the game disagrees with the author
 ```
 
 `npm run replay -- "<level> <code>"` re-runs a design from the in-game Debug
@@ -116,6 +117,24 @@ was refused or silently did nothing.
     harness all read it. Do not hard-code pixel positions for it, and give the
     player room for every part the level asks them to place (3.5 moves Fans left
     so the global router fits beside them).
+
+20. **A level's premise must be enforced, not just described.** In 2.5 the Tickets
+    app could answer browsing because any web server wired to a database could.
+    `NodeSpec.handles` limits an app to the request kinds it owns. If a level says
+    "team A owns X", make the engine refuse X from team B.
+21. **Queued work is late, not lost.** A queued order past its deadline is counted
+    once as failed (`async-late`, attributed to its queue) but is still worked. The
+    debrief names what behind the queue was full. Do not delete work from a
+    queue to punish a slow consumer.
+22. **Sharded data is reached through the shard map.** `ownedByShardMap`: a database
+    wired from a shard map accepts no wires from anything else, so reads cannot
+    skip it.
+23. **Praise only what the player did.** `postmortem.pattern` lists the parts or
+    switches a level's win text praises. If the design lacks them, the debrief says
+    it held another way. Add `pattern` when you add a level.
+24. **Play the game, do not just run the reference.** `npm run playtest` runs ~125
+    hand-written solutions, good and bad, on every level. It exits non-zero when the
+    game disagrees with the author's expectation. Add scenarios for every new rule.
 
 ## When adding a part or a level
 

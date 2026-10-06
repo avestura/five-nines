@@ -107,6 +107,7 @@ export const ACT1: Level[] = [
         'Root cause: every slot on the server was busy, the queue filled up, and new fans got turned away.',
       ],
       hint: 'Put a load balancer in front and add more web servers behind it.',
+      pattern: [{ part: 'lb' }],
     },
   },
   {
@@ -159,6 +160,7 @@ export const ACT1: Level[] = [
         'Root cause: adding web servers moved the bottleneck, it did not remove it.',
       ],
       hint: 'A cache between the web servers and the database answers repeated reads.',
+      pattern: [{ part: 'cache' }],
     },
   },
   {
@@ -205,6 +207,7 @@ export const ACT1: Level[] = [
         'Root cause: static files held web slots for a long time, so real page loads queued behind them.',
       ],
       hint: 'Add a CDN and wire it into your app, either in front of the load balancer or off a web server. Files come from the CDN and never touch your web servers.',
+      pattern: [{ part: 'cdn' }],
     },
   },
   {
@@ -251,6 +254,7 @@ export const ACT1: Level[] = [
         'Root cause: nothing was checking whether the servers were alive.',
       ],
       hint: 'Open the load balancer inspector and turn on health checks. Keep a spare server for when one dies.',
+      pattern: [{ opt: 'healthCheck' }],
     },
   },
 ];

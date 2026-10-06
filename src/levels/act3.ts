@@ -147,6 +147,7 @@ export const ACT3: Level[] = [
         'Root cause: a slow dependency held every slot. If retries were on, each failed call came back for more.',
       ],
       hint: 'Turn on circuit breakers on the web servers, and turn off retries against a dependency that is down.',
+      pattern: [{ opt: 'breaker' }],
     },
   },
   {
@@ -190,6 +191,7 @@ export const ACT3: Level[] = [
         'Root cause: one shared pool for fast work and slow work.',
       ],
       hint: 'Turn on the bulkhead on your web servers so writes can only take half the slots.',
+      pattern: [{ opt: 'bulkhead' }],
     },
   },
   {
@@ -231,6 +233,7 @@ export const ACT3: Level[] = [
         'Root cause: a queue smooths a spike. It cannot fix a flat line that is higher than your capacity.',
       ],
       hint: 'Put a shard map between your workers and two databases. Wire the cache through it too.',
+      pattern: [{ part: 'shardrouter' }],
     },
   },
   {
@@ -274,6 +277,7 @@ export const ACT3: Level[] = [
         'Root cause: asking the transactional database to also be a very fast read-only map.',
       ],
       hint: 'Workers write to the database and publish to an event topic. A read model subscribes to the topic. Web servers read from the read model.',
+      pattern: [{ part: 'readmodel' }],
     },
   },
   {
@@ -318,6 +322,7 @@ export const ACT3: Level[] = [
         'Root cause: redundancy inside a region does not help when the region is the thing that fails.',
       ],
       hint: 'Build a complete copy of the stack in each region. Put a global router in the left strip in front of both load balancers.',
+      pattern: [{ part: 'dns' }],
     },
   },
   {
@@ -338,8 +343,8 @@ export const ACT3: Level[] = [
     traffic: [
       { at: 0, rps: 70, mix: { read: 0.6, write: 0.15, static: 0.15, bot: 0.1 } },
       { at: 10, rps: 95 },
-      { at: 14, rps: 240, mix: { read: 0.3, write: 0.2, static: 0.2, bot: 0.3 } },
-      { at: 45, rps: 210 },
+      { at: 14, rps: 380, mix: { read: 0.15, write: 0.2, static: 0.2, bot: 0.45 } },
+      { at: 45, rps: 330 },
       { at: 60, rps: 160 },
     ],
     chaos: [
@@ -368,6 +373,7 @@ export const ACT3: Level[] = [
         'Root cause: a two-step order with no plan for when step two fails.',
       ],
       hint: 'Turn on the saga switch on your web servers, so a failed save undoes the charge. Retry still helps with the flaky database.',
+      pattern: [{ part: 'waf' }, { opt: 'saga' }],
     },
   },
 ];

@@ -23,8 +23,8 @@ const w24 = col('web', 'web', 3, 480, 336, 96);
 const w24r = w24.map((w) => ({ ...w, opts: { retry: true } }));
 
 // 2.5 ----------------------------------------------------------------
-const TK = (i: number): NodeSpec => ({ id: `tix-${i}`, kind: 'web', x: 576, y: 168 + (i - 1) * 96, fixed: true, label: 'Tickets app' });
-const BR = (i: number): NodeSpec => ({ id: `browse-${i}`, kind: 'web', x: 576, y: 408 + (i - 1) * 96, fixed: true, label: 'Browse app' });
+const TK = (i: number): NodeSpec => ({ id: `tix-${i}`, kind: 'web', x: 576, y: 168 + (i - 1) * 96, fixed: true, label: 'Tickets app', handles: ['write'] });
+const BR = (i: number): NodeSpec => ({ id: `browse-${i}`, kind: 'web', x: 576, y: 408 + (i - 1) * 96, fixed: true, label: 'Browse app', handles: ['read', 'static', 'bot'] });
 const DB25: NodeSpec = { id: 'db', kind: 'db', x: 912, y: 216, fixed: true, label: 'Orders DB' };
 const RR25: NodeSpec = { id: 'rr', kind: 'replica', x: 912, y: 456, fixed: true, label: 'Catalog replica' };
 const fixed25 = [FANS, TK(1), TK(2), BR(1), BR(2), BR(3), DB25, RR25];
@@ -88,6 +88,7 @@ export const ACT2: Level[] = [
         'Root cause: writes arrived faster than one primary can commit. More web servers only means more of them waiting.',
       ],
       hint: 'Send writes to a message queue, and put workers between the queue and the database.',
+      pattern: [{ part: 'queue' }, { part: 'worker' }],
     },
   },
   {
@@ -136,6 +137,7 @@ export const ACT2: Level[] = [
         'Root cause: one database doing both jobs. Reads crowded out writes.',
       ],
       hint: 'Add a read replica next to the database, and wire the cache to both. Writes will still find the primary.',
+      pattern: [{ part: 'replica' }],
     },
   },
   {
@@ -183,6 +185,7 @@ export const ACT2: Level[] = [
         'Root cause: every request was treated as a customer. Some were a Python script in a basement.',
       ],
       hint: 'Put a rate limiter first, in front of everything, so bots are turned away before they cost anything.',
+      pattern: [{ part: 'waf' }],
     },
   },
   {
@@ -231,6 +234,7 @@ export const ACT2: Level[] = [
         'Root cause: a single failed call was treated as final.',
       ],
       hint: 'Open each web server\'s inspector and turn on retry with backoff.',
+      pattern: [{ opt: 'retry' }],
     },
   },
   {
@@ -279,6 +283,7 @@ export const ACT2: Level[] = [
         'Root cause: an L4-minded front door in front of services that are not interchangeable.',
       ],
       hint: 'Use an API gateway as the front door. It routes each call to a service that can handle it.',
+      pattern: [{ part: 'gateway' }],
     },
   },
 ];

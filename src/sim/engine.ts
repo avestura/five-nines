@@ -1,4 +1,4 @@
-import { PARTS, ONE_NEXT_HOP, wireProblem, wouldCycle } from './parts';
+import { PARTS, ONE_NEXT_HOP, ownedByShardMap, wireProblem, wouldCycle } from './parts';
 import { makeRng, poisson, type Rng } from './rng';
 import {
   HOP_TICKS, TICKS_PER_SECOND_REAL, TICK_MS, REQ_TYPES,
@@ -36,6 +36,8 @@ interface LiveReq extends Req {
   calls: [string, string, number][]; // holder, downstream, tick the call started
   writeSlot: boolean;
   missed: string[]; // caches that already missed for this request
+  late: boolean; // a queued job past its deadline: the fan has given up, but the job is still worked
+  origin: string | null; // the queue a job came from
 }
 
 export class Sim {
@@ -98,7 +100,9 @@ export class Sim {
     this.out.clear();
     for (const id of this.nodes.keys()) this.out.set(id, []);
     const kept: { from: string; to: string }[] = [];
+    const owned = ownedByShardMap(design.nodes, design.edges);
     for (const e of design.edges) {
+      if (owned.has(e.to) && this.nodes.get(e.from)?.spec.kind !== 'shardrouter') continue;
       const a = this.nodes.get(e.from), b = this.nodes.get(e.to);
       // Wires the editor would refuse (old saves, hand-made links) do nothing.
       if (a && b && e.from !== e.to && !wireProblem(a.spec.kind, b.spec.kind)) {
@@ -128,7 +132,7 @@ export class Sim {
   private canProvide(n: NodeSpec): Set<Need> {
     const s = new Set<Need>();
     if (n.kind === 'readmodel' && !this.subscribed.has(n.id)) return s;
-    for (const t of REQ_TYPES) for (const need of PARTS[n.kind].provides(t, 0)) s.add(need);
+    for (const t of REQ_TYPES) if (!n.handles || n.handles.includes(t)) for (const need of PARTS[n.kind].provides(t, 0)) s.add(need);
     return s;
   }
 
@@ -173,6 +177,11 @@ export class Sim {
       stack.delete(id);
       // A queue only takes work that can be done later.
       if (node.spec.kind === 'queue') for (const n of [...s]) if (n !== 'write' && n !== 'pay') s.delete(n);
+      // An app that owns only some kinds of request cannot answer the rest, whatever sits behind it.
+      if (node.spec.handles) {
+        const ok = new Set<Need>(node.spec.handles.flatMap((t) => DEFAULT_NEEDS[t]).concat(this.level.needs ? node.spec.handles.flatMap((t) => this.level.needs?.[t] ?? []) : []));
+        for (const n of [...s]) if (!ok.has(n)) s.delete(n);
+      }
       this.reach.set(id, s);
       return s;
     };
@@ -266,7 +275,12 @@ export class Sim {
     }
     for (const r of [...this.live.values()]) {
       if (r.dead) continue;
-      if (t > r.deadline) { this.timeout(r); continue; }
+      if (t > r.deadline) {
+        // A queued order past its deadline is late, not lost: the fan has given up
+        // (counted once, now), but the job stays in the queue and is still worked.
+        if (r.async) { if (!r.late) this.goLate(r); }
+        else { this.timeout(r); continue; }
+      }
       // With a breaker, the caller also stops waiting on any single call
       // after CALL_TIMEOUT. That is what lets the breaker see a hang.
       const last = r.calls[r.calls.length - 1];
@@ -365,7 +379,7 @@ export class Sim {
         needs: [...(this.level.needs?.[type] ?? DEFAULT_NEEDS[type])],
         stack: [], at: src.spec.id, hop: null, serviceEnd: -1, async: false,
         attempts: 0, retryAt: -1, lastTried: null, origNeeds: 0,
-        returning: false, dead: false, calls: [], writeSlot: false, dispatchedTo: null, missed: [],
+        returning: false, dead: false, calls: [], writeSlot: false, dispatchedTo: null, missed: [], late: false, origin: null,
       };
       r.origNeeds = r.needs.length;
       this.live.set(r.id, r);
@@ -440,7 +454,9 @@ export class Sim {
       ? (r.type === 'read' || r.type === 'bot') && roll < (this.level.cacheHit ?? 0.85) ? ['data' as Need] : []
       : node.spec.kind === 'readmodel' && !this.subscribed.has(node.spec.id)
         ? []
-        : def.provides(r.type, roll);
+        : node.spec.handles && !node.spec.handles.includes(r.type)
+          ? []
+          : def.provides(r.type, roll);
     if (node.spec.kind === 'cache' && !got.length && r.needs[0] === 'data' && !(this.out.get(node.spec.id) ?? []).length) r.missed.push(node.spec.id);
     if (got.length) r.needs = r.needs.filter((n) => !got.includes(n));
     if (!r.needs.length) return this.finish(r, r.type === 'bot' ? 'botok' : 'ok');
@@ -532,7 +548,7 @@ export class Sim {
     if (q.queue.length >= limit) return this.finish(r, 'dropped', false, 'overflow');
     const job: LiveReq = {
       ...r, id: this.nextId++, async: true, stack: [], calls: [], deadline: this.t + ASYNC_DEADLINE,
-      at: q.spec.id, hop: null, serviceEnd: -1, returning: false, dead: false, writeSlot: false, dispatchedTo: null, missed: [],
+      at: q.spec.id, hop: null, serviceEnd: -1, returning: false, dead: false, writeSlot: false, dispatchedTo: null, missed: [], late: false, origin: q.spec.id,
     };
     this.live.set(job.id, job);
     q.queue.push(job);
@@ -569,7 +585,22 @@ export class Sim {
       }
     }
     r.serviceEnd = -1;
-    this.finish(r, 'timeout', true, r.async ? 'async-expired' : 'timeout');
+    this.finish(r, 'timeout', true, 'timeout');
+  }
+
+  private goLate(r: LiveReq) {
+    r.late = true;
+    const s = this.stats;
+    const at = r.origin ?? r.at ?? '';
+    s.failed++;
+    s.asyncLost++;
+    s.byType[r.type].failed++;
+    const n = this.nodes.get(at);
+    if (n) n.failed++;
+    const key = `async-late@${at}`;
+    s.why[key] = (s.why[key] ?? 0) + 1;
+    this.budget -= 1;
+    this.checkPaged();
   }
 
   private finish(r: LiveReq, outcome: Outcome, noRetry = false, why?: FailReason) {
@@ -626,6 +657,8 @@ export class Sim {
         s.latencies.push((this.t - r.born) * TICK_MS);
       }
       if (!r.async) s.byType[r.type].ok++;
+    } else if (r.async && r.late) {
+      // Already counted when it went late.
     } else if (outcome === 'blocked') s.blocked++;
     else if (outcome === 'botok') { s.botok++; s.byType.bot.ok++; }
     else if (r.type === 'bot') {

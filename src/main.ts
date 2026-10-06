@@ -4,6 +4,7 @@ import { LEVELS, ACTS, levelById } from './levels';
 import { load, save, type Naming } from './store';
 import { decodeDesign, readHash } from './share';
 import { Game } from './game/game';
+import { showLearn } from './game/learn';
 import type { Design, Level } from './sim/types';
 import { SANDBOX } from './levels/sandbox';
 
@@ -29,7 +30,9 @@ function openLevel(level: Level, design?: Design) {
     onExit: () => showMap(),
     onNext: (l) => openLevel(l),
   });
-  game.showIntro();
+  // First time in: show how the game works before the first brief.
+  if (!load().seenLearn && level.id === '1-1') showLearn(() => game?.showIntro());
+  else game.showIntro();
 }
 
 function showMap() {
@@ -63,13 +66,17 @@ function showMap() {
         ),
         h('div', { class: 'title-row' },
           h('div', { class: 'tape' }, `${got} / ${total} stars`),
+          h('button', { class: 'btn small', onclick: () => showLearn(), title: 'A short animated walkthrough' }, 'How it works'),
           h('button', {
             class: 'btn small', disabled: !sandboxOpen,
             title: sandboxOpen ? 'Free build with every part' : 'Finish Release 1 to open the sandbox',
             onclick: () => openLevel(structuredClone(SANDBOX)),
           }, sandboxOpen ? 'Sandbox' : 'Sandbox (finish Release 1)'),
         ),
-        h('div', { class: 'phone-note tape' }, 'This plays best on a desktop with a mouse.'),
+        h('div', { class: 'desktop-note tape' }, 'Best on a desktop. You drag parts and wires with a mouse, and the board needs room.'),
+        h('p', { class: 'disclaimer' },
+          h('b', {}, 'Not a real simulator. '),
+          'Five Nines is a deliberately oversimplified toy model of cloud design patterns. The numbers are invented, and queues, sharding, failover and the rest are cut down to teach one idea at a time. Real systems are messier. Do not size production from it.'),
         ...ACTS.map((a) =>
           h('section', { class: 'act' },
             h('h2', {}, `RELEASE ${a.n}: ${a.name.toUpperCase()}`, h('span', {}, a.blurb)),

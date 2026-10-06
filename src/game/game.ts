@@ -14,6 +14,7 @@ import {
 import { drawForecast } from './forecast';
 import { showDebrief } from './debrief';
 import { cardEl } from './cardview';
+import { showLearn } from './learn';
 import { audio } from '../audio';
 
 type Mode = 'build' | 'run' | 'paused' | 'over';
@@ -695,7 +696,7 @@ export class Game {
           `Error budget: ${L.errorBudget} failures. `,
           L.maxCost ? `Spend cap: $${L.maxCost}/mo. ` : '',
           `Par: $${L.parCost}/mo.`),
-        h('div', { class: 'actions' }, h('button', { class: 'btn primary', onclick: close }, 'Start drafting')),
+        h('div', { class: 'actions' }, h('button', { class: 'btn', onclick: () => showLearn() }, 'How it works'), h('button', { class: 'btn primary', onclick: close }, 'Start drafting')),
       ),
     );
     document.body.append(back);

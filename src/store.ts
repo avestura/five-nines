@@ -9,11 +9,12 @@ export interface Save {
   naming: Naming;
   muted: boolean;
   debug: boolean; // show the Debug button and the design check
+  seenLearn: boolean; // the how-it-works walkthrough has been shown once
 }
 
 const KEY = 'five-nines-v1';
 
-const blank = (): Save => ({ stars: {}, designs: {}, seenCards: [], naming: 'generic', muted: false, debug: false });
+const blank = (): Save => ({ stars: {}, designs: {}, seenCards: [], naming: 'generic', muted: false, debug: false, seenLearn: false });
 
 let cache: Save | null = null;
 

@@ -11,7 +11,7 @@ const page = await browser.newPage();
 const errors: string[] = [];
 page.on('pageerror', (e) => errors.push(String(e)));
 await page.goto(BASE, { waitUntil: 'networkidle0' });
-await page.evaluate(() => localStorage.clear());
+await page.evaluate(() => localStorage.setItem('five-nines-v1', JSON.stringify({ seenLearn: true })));
 await page.reload({ waitUntil: 'networkidle0' });
 await page.click('.sheet');
 await page.click('.modal .btn.primary');

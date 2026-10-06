@@ -1,5 +1,17 @@
 # Five Nines
 
+**[Play it in the browser](https://avestura.github.io/five-nines/)**
+
+![Two regions of web servers, caches and databases on graph paper, with requests flowing](docs/screenshot.png)
+
+> **Not a real simulator.** Five Nines is a deliberately oversimplified toy model of
+> cloud design patterns. The numbers are invented, and queues, sharding, failover and
+> the rest are cut down to teach one idea at a time. Real systems are messier. Do not
+> size production from it. Where a rule is stricter or narrower than reality, the part's
+> card says so under "In this game".
+
+Best on a desktop: you drag parts and wires with a mouse, and the board needs room.
+
 A browser game about keeping a concert ticket startup online. Drag parts onto
 a sheet of graph paper, wire them up, press Run, and watch the traffic arrive.
 Each level is built to hurt without a particular cloud design pattern, and
@@ -51,3 +63,7 @@ win and a `naive` design that should lose. Then run
 `npx tsx tools/scan.ts <id>` to see both at several traffic scales, and
 `python tools/scale.py <file> <id> <factor>` to apply one. `npm run harness`
 has to pass before CI will deploy.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

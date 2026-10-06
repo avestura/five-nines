@@ -12,6 +12,7 @@ npm run check     # static design check passes on every reference
 npm run audit     # real-world arrangements are accepted AND do something
 npm run diagnose  # debrief causes/fixes for every naive design; teaching switches must be named
 npm run playtest  # ~130 hand-written solutions per level; '!!' lines are where the game disagrees with the author
+# Images: with `npx vite preview --port 5199` running, `npx tsx tools/og.ts` redraws public/og.png and docs/screenshot.png.
 ```
 
 `npm run replay -- "<level> <code>"` re-runs a design from the in-game Debug
@@ -135,6 +136,11 @@ was refused or silently did nothing.
 24. **Play the game, do not just run the reference.** `npm run playtest` runs ~125
     hand-written solutions, good and bad, on every level. It exits non-zero when the
     game disagrees with the author's expectation. Add scenarios for every new rule.
+
+25. **The how-it-works walkthrough runs the real simulation** (`src/game/learn.ts`).
+    If you rename parts, change wiring rules or the load balancer's health check,
+    watch it once: its script wires fans > lb > webs > db and flips a health check.
+    It opens on the very first visit to 1.1 and from the title screen and the brief.
 
 ## When adding a part or a level
 

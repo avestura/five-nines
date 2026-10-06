@@ -10,6 +10,7 @@ import { GLOBAL_STRIP, type Design, type Level, type NodeOpts, type NodeSpec, ty
 export interface Diagnosis {
   headline: string | null; // the biggest measured cause, one sentence
   fixes: string[]; // concrete things to try, most useful first
+  notes: string[]; // advice worth reading even when the run passed
 }
 
 export function parseWhy(key: string) {
@@ -171,12 +172,32 @@ export function diagnose(sim: Sim, level: Level, design: Design): Diagnosis {
     });
   }
 
+  // Worth knowing even on a pass.
+  const notes: string[] = [];
+  // A shard map spreads data; it does not copy it. A dead shard takes its share with it.
+  const shardDown = [...sim.nodes.values()].filter((nd) => nd.spec.kind === 'db' && upstream(nd.spec.id).some((u) => u.kind === 'shardrouter'));
+  const lostShard = shardDown.filter((nd) => (sim.stats.why[`node-down@${nd.spec.id}`] ?? 0) + (sim.stats.why[`lost-in-crash@${nd.spec.id}`] ?? 0) > 0);
+  if (lostShard.length) {
+    const noCache = has('cache') && !mine(['cache']).length;
+    notes.push(`${labels(lostShard.map((x) => x.spec))} went down, and the shard map kept sending that database's share to it. Sharding splits data across databases; it does not copy it, and the shard map does not check health. It buys write capacity, not availability: a dead shard takes its share of the data with it.${noCache ? ' A cache in front keeps answering most reads while a database is down, and costs far less than a second database.' : ''}`);
+  }
+  // The same kind of part with different switches usually means one was forgotten.
+  for (const kind of ['web', 'worker'] as PartKind[]) {
+    const group = mine([kind]);
+    if (group.length < 2) continue;
+    for (const o of ['retry', 'breaker', 'bulkhead', 'saga'] as (keyof NodeOpts)[]) {
+      if (!optAvail(o) || (o === 'bulkhead' && kind !== 'web')) continue;
+      const on = group.filter((x) => x.opts?.[o]), off = group.filter((x) => !x.opts?.[o]);
+      if (on.length && off.length) notes.push(`${OPT_NAME[o]} is on for ${labels(on)} but off for ${labels(off)}. They do the same job, so the ones left off are the weak spot. Set them the same.`);
+    }
+  }
+
   cands.sort((a, b) => b.n - a.n);
   const fixes: string[] = [];
   for (const c of cands) for (const f of c.fixes) if (!fixes.includes(f)) fixes.push(f);
   // A switch you left off is cheaper to fix than building more, so it goes first.
   fixes.sort((a, b) => Number(/tick "/.test(b)) - Number(/tick "/.test(a)));
-  return { headline: cands[0]?.headline ?? null, fixes: fixes.slice(0, 5) };
+  return { headline: cands[0]?.headline ?? null, fixes: fixes.slice(0, 5), notes };
 
   function capacityFix(x?: NodeSpec): string[] {
     if (!x) return [];

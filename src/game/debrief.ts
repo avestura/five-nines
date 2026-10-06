@@ -111,7 +111,7 @@ export function showDebrief(sim: Sim, design: Design, act: Actions) {
   if (sim.stats.botLost > 0) facts.push(`${sim.stats.botLost} more bot requests died inside your system without being blocked. They still used up your servers on the way.`);
   if (sim.stats.strikes > 0) facts.push(`${sim.stats.strikes} hotfix${sim.stats.strikes > 1 ? 'es were' : ' was'} deployed mid-incident.`);
   if (!facts.length) facts.push('Nothing notable. A boring incident report is the best kind.');
-  const dx = passed ? null : diagnose(sim, L, design);
+  const dx = diagnose(sim, L, design);
   const problems = passed || !load().debug ? [] : checkDesign(L, design).problems;
 
   const pm = h('div', { class: 'pm' },
@@ -120,7 +120,7 @@ export function showDebrief(sim: Sim, design: Design, act: Actions) {
       ? L.postmortem.win
       : wiring
         ? [`Summary: ${noRoute} of ${sim.stats.failed} failed requests hit a dead end: the drawing gave them no route to what they needed. Nothing ran out of capacity.`]
-        : dx?.headline
+        : dx.headline
           ? [`Summary: ${dx.headline}`]
           : L.postmortem.lose).map((l) => h('div', {}, l)),
     problems.length ? h('h5', {}, 'Problems with the drawing') : null,
@@ -134,8 +134,9 @@ export function showDebrief(sim: Sim, design: Design, act: Actions) {
     !passed || stars < 3 || idleGateways(design).length ? h('h5', {}, 'Action items') : null,
     ...(!passed && wiring ? wiringFix.map((l) => h('div', {}, l)) : []),
     !passed && wiring ? h('div', {}, `Once every request has a route, this level is about: ${L.postmortem.hint}`) : null,
-    ...(!passed && !wiring && dx ? dx.fixes.map((f) => h('div', {}, f)) : []),
-    !passed && !wiring ? h('div', {}, dx?.headline ? `The pattern this level teaches: ${L.postmortem.hint}` : L.postmortem.hint) : null,
+    ...(!passed && !wiring ? dx.fixes.map((f) => h('div', {}, f)) : []),
+    ...(!passed || stars < 3 ? dx.notes.map((f) => h('div', {}, f)) : []),
+    !passed && !wiring ? h('div', {}, dx.headline ? `The pattern this level teaches: ${L.postmortem.hint}` : L.postmortem.hint) : null,
     passed && !r.stars[1] ? h('div', {}, `p99 was ${r.p99} ms against a ${L.slo.p99} ms target. Find the queue that is backing up.`) : null,
     passed && !r.stars[2] ? h('div', {}, `You spent $${r.cost}/mo. Par is $${L.parCost}. Something is doing less than it costs.`) : null,
     idleGateways(design).length ? h('div', {}, `The API gateway (${idleGateways(design).join(', ')}) had only one kind of service behind it, so it had nothing to route. It was billed an extra $${idleGateways(design).length * IDLE_GATEWAY_EXTRA}/mo. A load balancer would have done the job for $25.`) : null,
